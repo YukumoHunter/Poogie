@@ -80,12 +80,11 @@ impl Instance {
         let name = CString::new("VK_LAYER_KHRONOS_validation").unwrap();
         let layernames = vec![name.as_ptr()];
 
-        let mut create_info = vk::InstanceCreateInfo::builder()
+        let create_info = vk::InstanceCreateInfo::builder()
             .application_info(&app_info)
             .enabled_layer_names(&layernames)
             .enabled_extension_names(&extension_ptrs)
             .build();
-        create_info.p_next = &debug_messenger_info as *const _ as *const c_void;
 
         let raw_instance = unsafe { entry.create_instance(&create_info, None)? };
         log::info!("Created vulkan instance!");
