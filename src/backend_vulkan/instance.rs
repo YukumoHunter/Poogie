@@ -2,6 +2,7 @@ use anyhow::Result;
 use ash::{extensions::ext, vk};
 use log;
 use std::ffi::{c_void, CStr, CString};
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct InstanceBuilder {
@@ -10,8 +11,8 @@ pub struct InstanceBuilder {
 }
 
 impl InstanceBuilder {
-    pub fn build(self) -> Result<Instance> {
-        Instance::create(self)
+    pub fn build(self) -> Result<Arc<Instance>> {
+        Ok(Arc::new(Instance::create(self)?))
     }
 
     pub fn required_extensions(mut self, required_extensions: Vec<&'static str>) -> Self {
@@ -28,7 +29,7 @@ impl InstanceBuilder {
 pub struct Instance {
     #[allow(dead_code)]
     pub(crate) entry: ash::Entry,
-    pub raw_instance: ash::Instance,
+    pub raw: ash::Instance,
     #[allow(dead_code)]
     pub(crate) debug_utils: Option<ext::DebugUtils>,
     #[allow(dead_code)]
@@ -40,7 +41,23 @@ impl Instance {
         InstanceBuilder::default()
     }
 
-    pub fn create(builder: InstanceBuilder) -> Result<Self> {
+    fn internal_extension_names(builder: &InstanceBuilder) -> Vec<CString> {
+        let mut names = vec![ash::extensions::khr::Surface::name().to_owned()];
+        if builder.debug_graphics {
+            names.push(CString::from(vk::ExtDebugUtilsFn::name()));
+        }
+        names
+    }
+
+    fn internal_layer_names(builder: &InstanceBuilder) -> Vec<CString> {
+        let mut names = Vec::new();
+        if builder.debug_graphics {
+            names.push(CString::new("VK_LAYER_KHRONOS_validation").unwrap());
+        }
+        names
+    }
+
+    fn create(builder: InstanceBuilder) -> Result<Self> {
         let app_name = CString::new("PoogieApp").unwrap();
         let engine_name = CString::new("PoogieEngine").unwrap();
 
@@ -51,18 +68,29 @@ impl Instance {
             .application_name(&app_name)
             .engine_name(&engine_name);
 
-        let required_extensions = builder
+        // Add all extensions to vector
+        let mut extension_names = Self::internal_extension_names(&builder);
+        let mut req_extension_names = builder
             .required_extensions
+            .clone()
             .into_iter()
             .map(|ext| CString::new(ext).unwrap())
             .collect::<Vec<_>>();
+        extension_names.append(&mut req_extension_names);
 
-        let extension_ptrs = required_extensions
+        // And get their pointers
+        let extension_names = extension_names
             .iter()
             .map(|ext| ext.as_ptr())
-            .collect::<Vec<_>>();
+            .collect::<Vec<*const i8>>();
 
-        let debug_messenger_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        let layer_names = Self::internal_layer_names(&builder);
+        let layer_names = layer_names
+            .iter()
+            .map(|lay| lay.as_ptr())
+            .collect::<Vec<*const i8>>();
+
+        let mut debug_messenger_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
             .message_severity(
                 vk::DebugUtilsMessageSeverityFlagsEXT::INFO
                     | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
@@ -76,14 +104,11 @@ impl Instance {
             .pfn_user_callback(Some(vulkan_debug_callback))
             .build();
 
-        // TEMP
-        let name = CString::new("VK_LAYER_KHRONOS_validation").unwrap();
-        let layernames = vec![name.as_ptr()];
-
         let create_info = vk::InstanceCreateInfo::builder()
+            .push_next(&mut debug_messenger_info)
             .application_info(&app_info)
-            .enabled_layer_names(&layernames)
-            .enabled_extension_names(&extension_ptrs)
+            .enabled_extension_names(&extension_names)
+            .enabled_layer_names(&layer_names)
             .build();
 
         let raw_instance = unsafe { entry.create_instance(&create_info, None)? };
@@ -102,7 +127,7 @@ impl Instance {
 
         Ok(Self {
             entry,
-            raw_instance,
+            raw: raw_instance,
             debug_utils,
             debug_messenger,
         })
@@ -119,13 +144,13 @@ unsafe extern "system" fn vulkan_debug_callback(
 
     match _msg_severity {
         vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
-            log::info!("{}\n", message)
+            log::info!("{message}")
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
-            log::warn!("{}\n", message)
+            log::warn!("{message}")
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
-            log::error!("{}\n", message)
+            log::error!("{message}")
         }
         _ => (),
     }

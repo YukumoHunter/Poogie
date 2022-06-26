@@ -1,9 +1,8 @@
-use poogie::poogie_app::PoogieApp;
+use poogie::PoogieApp;
 
 fn main() {
     env_logger::init();
-
-    let poogie = PoogieApp::new(1920, 1080);
+    let poogie = PoogieApp::new(1280, 720).unwrap();
 
     poogie.render_loop();
 }
