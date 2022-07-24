@@ -18,15 +18,59 @@ pub struct PoogieApp {
     pub device: Arc<Device>,
 }
 
+pub struct PoogieAppBuilder {
+    title: String,
+    resolution: [u32; 2],
+    debug_graphics: bool,
+}
+
+impl PoogieAppBuilder {
+    pub fn new() -> Self {
+        PoogieAppBuilder {
+            title: "PoogieApp".to_string(),
+            resolution: [1280, 720],
+            debug_graphics: false,
+        }
+    }
+
+    pub fn title(mut self, title: String) -> Self {
+        self.title = title;
+        self
+    }
+
+    pub fn resolution(mut self, resolution: [u32; 2]) -> Self {
+        self.resolution = resolution;
+        self
+    }
+
+    pub fn debug_graphics(mut self, debug_graphics: bool) -> Self {
+        self.debug_graphics = debug_graphics;
+        self
+    }
+
+    pub fn build(self) -> Result<PoogieApp> {
+        PoogieApp::create(self)
+    }
+}
+
 impl PoogieApp {
-    pub fn new(window_width: u32, window_height: u32) -> Result<PoogieApp> {
+    pub fn builder() -> PoogieAppBuilder {
+        PoogieAppBuilder::new()
+    }
+
+    pub fn create(builder: PoogieAppBuilder) -> Result<Self> {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
-            .with_title("PoogieExample")
-            .with_inner_size(winit::dpi::LogicalSize::new(window_width, window_height))
+            .with_title(builder.title)
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                builder.resolution[0],
+                builder.resolution[1],
+            ))
             .build(&event_loop)?;
 
-        let instance = Instance::builder().debug_graphics(true).build()?;
+        let instance = Instance::builder()
+            .debug_graphics(builder.debug_graphics)
+            .build()?;
 
         let pdevices = PhysicalDevice::enumerate_physical_devices(&instance)?;
         let pdevice = Arc::new(
