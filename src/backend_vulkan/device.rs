@@ -30,7 +30,10 @@ impl Device {
                 .collect()
         };
 
-        let device_ext_names = vec![khr::Swapchain::name().as_ptr()];
+        let device_ext_names = vec![
+            khr::Swapchain::name().as_ptr(),
+            khr::DynamicRendering::name().as_ptr(),
+        ];
 
         unsafe {
             for &ext in &device_ext_names {

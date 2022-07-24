@@ -68,7 +68,7 @@ impl Instance {
             .application_name(&app_name)
             .engine_name(&engine_name);
 
-        // Add all extensions to vector
+        // add all extensions to vector
         let mut extension_names = Self::internal_extension_names(&builder);
         let mut req_extension_names = builder
             .required_extensions
@@ -78,7 +78,7 @@ impl Instance {
             .collect::<Vec<_>>();
         extension_names.append(&mut req_extension_names);
 
-        // And get their pointers
+        // and get extension pointers
         let extension_names = extension_names
             .iter()
             .map(|ext| ext.as_ptr())
@@ -101,15 +101,13 @@ impl Instance {
                     | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
                     | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
             )
-            .pfn_user_callback(Some(vulkan_debug_callback))
-            .build();
+            .pfn_user_callback(Some(vulkan_debug_callback));
 
         let create_info = vk::InstanceCreateInfo::builder()
             .push_next(&mut debug_messenger_info)
             .application_info(&app_info)
             .enabled_extension_names(&extension_names)
-            .enabled_layer_names(&layer_names)
-            .build();
+            .enabled_layer_names(&layer_names);
 
         let raw_instance = unsafe { entry.create_instance(&create_info, None)? };
         log::info!("Created vulkan instance!");
