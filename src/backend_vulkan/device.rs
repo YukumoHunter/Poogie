@@ -1,16 +1,59 @@
-use super::{instance::Instance, physical_device::PhysicalDevice};
+use super::{
+    instance::Instance,
+    physical_device::{PhysicalDevice, QueueFamily},
+};
 use anyhow::Result;
-use ash;
 use ash::{extensions::khr, vk};
 use std::{collections::HashSet, ffi::CStr, os::raw::c_char, sync::Arc};
 
+pub struct Queue {
+    pub raw: vk::Queue,
+    pub family: QueueFamily,
+}
+
+pub struct CommandBuffer {
+    pub raw: vk::CommandBuffer,
+    pub pool: vk::CommandPool,
+    pub submit_done_fence: vk::Fence,
+}
+
+impl CommandBuffer {
+    pub fn new(device: &ash::Device, queue_family: &QueueFamily) -> Result<Self> {
+        let pool_create_info = vk::CommandPoolCreateInfo::builder()
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+            .queue_family_index(queue_family.index);
+
+        let pool = unsafe { device.create_command_pool(&pool_create_info, None)? };
+
+        let cmd_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+            .command_buffer_count(1)
+            .command_pool(pool)
+            .level(vk::CommandBufferLevel::PRIMARY);
+
+        let cmd_buffer = unsafe { device.allocate_command_buffers(&cmd_buffer_allocate_info)?[0] };
+
+        let fence_create_info =
+            vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+
+        let submit_done_fence = unsafe { device.create_fence(&fence_create_info, None)? };
+
+        Ok(CommandBuffer {
+            raw: cmd_buffer,
+            pool,
+            submit_done_fence,
+        })
+    }
+}
+
 pub struct Device {
     pub raw: ash::Device,
-    #[allow(dead_code)]
     pub(crate) pdevice: Arc<PhysicalDevice>,
-    #[allow(dead_code)]
     pub(crate) instance: Arc<Instance>,
-    pub has_transfer_queue: bool,
+
+    pub graphics_queue: Queue,
+    pub transfer_queue: Option<Queue>, // TODO: currently unused
+    // TODO: create an optional queue for compute as well
+    pub main_command_buffer: CommandBuffer,
 }
 
 impl Device {
@@ -44,7 +87,7 @@ impl Device {
             }
         }
 
-        let graphics_queue = pdevice
+        let graphics_queue_family = pdevice
             .queue_families
             .iter()
             .filter(|family| {
@@ -57,7 +100,7 @@ impl Device {
             .next()
             .expect("No suitable graphics queue family found");
 
-        let transfer_queue = pdevice
+        let transfer_queue_family = pdevice
             .queue_families
             .iter()
             .filter(|family| {
@@ -65,10 +108,7 @@ impl Device {
                     .properties
                     .queue_flags
                     .contains(vk::QueueFlags::TRANSFER)
-                    && !family
-                        .properties
-                        .queue_flags
-                        .contains(vk::QueueFlags::GRAPHICS)
+                    && !family.index == graphics_queue_family.index
             })
             .copied()
             .next();
@@ -76,20 +116,17 @@ impl Device {
         let priorities = [1.0f32];
 
         let mut queue_create_infos = vec![vk::DeviceQueueCreateInfo::builder()
-            .queue_family_index(graphics_queue.index)
+            .queue_family_index(graphics_queue_family.index)
             .queue_priorities(&priorities)
             .build()];
 
-        let mut has_transfer_queue = false;
-        if let Some(transfer_queue) = transfer_queue {
+        if let Some(transfer_queue) = transfer_queue_family {
             queue_create_infos.push(
                 vk::DeviceQueueCreateInfo::builder()
                     .queue_family_index(transfer_queue.index)
                     .queue_priorities(&priorities)
                     .build(),
             );
-
-            has_transfer_queue = true;
         };
 
         let device_create_info = vk::DeviceCreateInfo::builder()
@@ -105,11 +142,25 @@ impl Device {
 
         log::info!("Created Vulkan logical device");
 
+        let graphics_queue = Queue {
+            raw: unsafe { device.get_device_queue(graphics_queue_family.index, 0) },
+            family: graphics_queue_family,
+        };
+
+        let transfer_queue = transfer_queue_family.map(|family| Queue {
+            raw: unsafe { device.get_device_queue(family.index, 0) },
+            family,
+        });
+
+        let main_command_buffer = CommandBuffer::new(&device, &graphics_queue_family)?;
+
         Ok(Arc::new(Device {
             raw: device,
             pdevice: pdevice.clone(),
             instance: pdevice.instance.clone(),
-            has_transfer_queue,
+            graphics_queue,
+            transfer_queue,
+            main_command_buffer,
         }))
     }
 }
