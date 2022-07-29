@@ -14,7 +14,7 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn create(pdevice: &Arc<PhysicalDevice>) -> Result<Arc<Self>> {
+    pub fn new(pdevice: &Arc<PhysicalDevice>) -> Result<Arc<Self>> {
         let supported_extensions: HashSet<String> = unsafe {
             pdevice
                 .instance

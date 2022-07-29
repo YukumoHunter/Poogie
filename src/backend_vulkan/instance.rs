@@ -1,5 +1,8 @@
 use anyhow::Result;
-use ash::{extensions::ext, vk};
+use ash::{
+    extensions::{ext, khr},
+    vk,
+};
 use log;
 use std::ffi::{c_void, CStr, CString};
 use std::sync::Arc;
@@ -42,9 +45,13 @@ impl Instance {
     }
 
     fn internal_extension_names(builder: &InstanceBuilder) -> Vec<CString> {
-        let mut names = vec![ash::extensions::khr::Surface::name().to_owned()];
+        let mut names = vec![
+            khr::Surface::name().to_owned(),
+            khr::Win32Surface::name().to_owned(),
+        ];
         if builder.debug_graphics {
-            names.push(CString::from(vk::ExtDebugUtilsFn::name()));
+            names.push(ext::DebugUtils::name().to_owned());
+            // names.push(CString::from(vk::ExtDebugUtilsFn::name()));
         }
         names
     }
@@ -142,13 +149,13 @@ unsafe extern "system" fn vulkan_debug_callback(
 
     match _msg_severity {
         vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
-            log::info!("{message}")
+            log::info!("{message}");
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
-            log::warn!("{message}")
+            log::warn!("{message}");
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
-            log::error!("{message}")
+            log::error!("{message}");
         }
         _ => (),
     }

@@ -2,7 +2,13 @@ pub mod backend_vulkan;
 
 use anyhow::Result;
 use ash::vk;
-use backend_vulkan::{device::Device, instance::Instance, physical_device::PhysicalDevice};
+use backend_vulkan::{
+    device::Device,
+    instance::Instance,
+    physical_device::PhysicalDevice,
+    surface::Surface,
+    swapchain::{Swapchain, SwapchainDesc},
+};
 use std::{cell::RefCell, sync::Arc};
 use winit::{
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -16,20 +22,24 @@ pub struct PoogieApp {
     pub window: winit::window::Window,
     pub instance: Arc<Instance>,
     pub device: Arc<Device>,
+    pub surface: Arc<Surface>,
+    pub swapchain: Swapchain,
 }
 
 pub struct PoogieAppBuilder {
     title: String,
     resolution: [u32; 2],
     debug_graphics: bool,
+    vsync: bool,
 }
 
 impl PoogieAppBuilder {
-    pub fn new() -> Self {
+    pub fn default() -> Self {
         PoogieAppBuilder {
             title: "PoogieApp".to_string(),
             resolution: [1280, 720],
             debug_graphics: false,
+            vsync: true,
         }
     }
 
@@ -48,6 +58,11 @@ impl PoogieAppBuilder {
         self
     }
 
+    pub fn vsync(mut self, vsync: bool) -> Self {
+        self.vsync = vsync;
+        self
+    }
+
     pub fn build(self) -> Result<PoogieApp> {
         PoogieApp::create(self)
     }
@@ -55,7 +70,7 @@ impl PoogieAppBuilder {
 
 impl PoogieApp {
     pub fn builder() -> PoogieAppBuilder {
-        PoogieAppBuilder::new()
+        PoogieAppBuilder::default()
     }
 
     pub fn create(builder: PoogieAppBuilder) -> Result<Self> {
@@ -88,13 +103,36 @@ impl PoogieApp {
                 .unwrap(),
         );
 
-        let device = Device::create(&pdevice)?;
+        let device = Device::new(&pdevice)?;
+
+        let surface = Surface::new(&instance, &window)?;
+
+        let preferred_format = vk::SurfaceFormatKHR::builder()
+            .format(vk::Format::B8G8R8A8_UNORM)
+            .color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
+            .build();
+
+        if !Swapchain::enumerate_surface_formats(&device, &surface)?.contains(&preferred_format) {
+            panic!("Surface format is not supported!");
+        }
+
+        let swapchain_desc = SwapchainDesc {
+            format: preferred_format,
+            extent: vk::Extent2D::builder()
+                .width(builder.resolution[0])
+                .height(builder.resolution[1])
+                .build(),
+            vsync: builder.vsync,
+        };
+        let swapchain = Swapchain::new(&device, &surface, swapchain_desc)?;
 
         Ok(PoogieApp {
             event_loop: RefCell::new(event_loop),
             window,
             instance,
             device,
+            surface,
+            swapchain,
         })
     }
 
