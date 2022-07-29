@@ -3,7 +3,7 @@ use anyhow::Result;
 use ash::vk;
 use std::sync::Arc;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct QueueFamily {
     pub index: u32,
     pub properties: vk::QueueFamilyProperties,
