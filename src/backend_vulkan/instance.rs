@@ -45,13 +45,9 @@ impl Instance {
     }
 
     fn internal_extension_names(builder: &InstanceBuilder) -> Vec<CString> {
-        let mut names = vec![
-            khr::Surface::name().to_owned(),
-            khr::Win32Surface::name().to_owned(),
-        ];
+        let mut names = vec![khr::Surface::name().to_owned()];
         if builder.debug_graphics {
             names.push(ext::DebugUtils::name().to_owned());
-            // names.push(CString::from(vk::ExtDebugUtilsFn::name()));
         }
         names
     }

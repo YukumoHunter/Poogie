@@ -9,6 +9,7 @@ use backend_vulkan::{
     surface::Surface,
     swapchain::{Swapchain, SwapchainDesc},
 };
+use std::ffi::CStr;
 use std::{cell::RefCell, sync::Arc};
 use winit::{
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -83,8 +84,15 @@ impl PoogieApp {
             ))
             .build(&event_loop)?;
 
+        let window_ext = ash_window::enumerate_required_extensions(&window)
+            .expect("Failed to get required instance extensions required for window")
+            .iter()
+            .map(|&ext| unsafe { CStr::from_ptr(ext).to_str().unwrap() })
+            .collect();
+
         let instance = Instance::builder()
             .debug_graphics(builder.debug_graphics)
+            .required_extensions(window_ext)
             .build()?;
 
         let pdevices = PhysicalDevice::enumerate_physical_devices(&instance)?;
