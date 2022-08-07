@@ -106,11 +106,15 @@ impl Instance {
             )
             .pfn_user_callback(Some(vulkan_debug_callback));
 
+        let mut validation_features = vk::ValidationFeaturesEXT::builder()
+            .enabled_validation_features(&[vk::ValidationFeatureEnableEXT::BEST_PRACTICES]);
+
         let create_info = vk::InstanceCreateInfo::builder()
             .push_next(&mut debug_messenger_info)
             .application_info(&app_info)
             .enabled_extension_names(&extension_names)
-            .enabled_layer_names(&layer_names);
+            .enabled_layer_names(&layer_names)
+            .push_next(&mut validation_features);
 
         let raw_instance = unsafe { entry.create_instance(&create_info, None)? };
         log::info!("Created vulkan instance!");
