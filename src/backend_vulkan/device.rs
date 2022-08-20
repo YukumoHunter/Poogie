@@ -43,6 +43,8 @@ impl CommandBuffer {
             submit_done_fence,
         })
     }
+
+    pub fn immediate_submit() {}
 }
 
 pub struct Device {
@@ -54,6 +56,8 @@ pub struct Device {
     pub transfer_queue: Option<Queue>, // TODO: currently unused
     // TODO: create an optional queue for compute as well
     pub main_command_buffer: CommandBuffer,
+
+    pub render_fence: vk::Fence,
 }
 
 impl Device {
@@ -129,9 +133,13 @@ impl Device {
             );
         };
 
+        let mut dyn_rendering =
+            vk::PhysicalDeviceDynamicRenderingFeatures::builder().dynamic_rendering(true);
+
         let device_create_info = vk::DeviceCreateInfo::builder()
             .enabled_extension_names(&device_ext_names)
-            .queue_create_infos(&queue_create_infos);
+            .queue_create_infos(&queue_create_infos)
+            .push_next(&mut dyn_rendering);
 
         let device = unsafe {
             pdevice
@@ -140,7 +148,7 @@ impl Device {
                 .create_device(pdevice.raw, &device_create_info, None)?
         };
 
-        log::info!("Created Vulkan logical device");
+        log::info!("Created Vulkan logical device!");
 
         let graphics_queue = Queue {
             raw: unsafe { device.get_device_queue(graphics_queue_family.index, 0) },
@@ -154,6 +162,11 @@ impl Device {
 
         let main_command_buffer = CommandBuffer::new(&device, &graphics_queue_family)?;
 
+        let fence_create_info =
+            vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+
+        let render_fence = unsafe { device.create_fence(&fence_create_info, None)? };
+
         Ok(Arc::new(Device {
             raw: device,
             pdevice: pdevice.clone(),
@@ -161,6 +174,7 @@ impl Device {
             graphics_queue,
             transfer_queue,
             main_command_buffer,
+            render_fence,
         }))
     }
 }
