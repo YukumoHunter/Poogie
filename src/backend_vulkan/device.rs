@@ -57,8 +57,6 @@ pub struct Device {
     // TODO: create an optional queue for compute as well
     pub main_command_buffer: CommandBuffer,
 
-    pub present_semaphore: vk::Semaphore,
-    pub render_semaphore: vk::Semaphore,
     pub render_fence: vk::Fence,
 }
 
@@ -150,7 +148,7 @@ impl Device {
                 .create_device(pdevice.raw, &device_create_info, None)?
         };
 
-        log::info!("Created Vulkan logical device");
+        log::info!("Created Vulkan logical device!");
 
         let graphics_queue = Queue {
             raw: unsafe { device.get_device_queue(graphics_queue_family.index, 0) },
@@ -164,13 +162,9 @@ impl Device {
 
         let main_command_buffer = CommandBuffer::new(&device, &graphics_queue_family)?;
 
-        let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
-
         let fence_create_info =
             vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
 
-        let present_semaphore = unsafe { device.create_semaphore(&semaphore_create_info, None)? };
-        let render_semaphore = unsafe { device.create_semaphore(&semaphore_create_info, None)? };
         let render_fence = unsafe { device.create_fence(&fence_create_info, None)? };
 
         Ok(Arc::new(Device {
@@ -180,8 +174,6 @@ impl Device {
             graphics_queue,
             transfer_queue,
             main_command_buffer,
-            present_semaphore,
-            render_semaphore,
             render_fence,
         }))
     }
