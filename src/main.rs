@@ -4,7 +4,7 @@ fn main() {
     env_logger::init();
     let poogie = PoogieApp::builder()
         .debug_graphics(true)
-        .resolution([1920, 1080])
+        .resolution([1280, 720])
         .title("Awesome Poogie App Winning".to_string())
         .build()
         .unwrap();

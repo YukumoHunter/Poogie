@@ -1,7 +1,7 @@
 pub mod backend_vulkan;
 
 use anyhow::Result;
-use ash::vk;
+use ash::{extensions::khr, vk};
 use backend_vulkan::{
     device::Device,
     instance::Instance,
@@ -144,6 +144,93 @@ impl PoogieApp {
         })
     }
 
+    pub fn draw(&self) -> Result<()> {
+        dbg!("hi");
+
+        unsafe {
+            self.device
+                .raw
+                .wait_for_fences(&[self.device.render_fence], true, u64::MAX)?;
+            self.device.raw.reset_fences(&[self.device.render_fence])?;
+        }
+
+        let (index, _) = unsafe {
+            self.swapchain.loader.acquire_next_image(
+                self.swapchain.raw,
+                1000000000,
+                // u64::MAX,
+                self.device.present_semaphore,
+                vk::Fence::null(),
+            )?
+        };
+
+        unsafe {
+            self.device.raw.reset_command_buffer(
+                self.device.main_command_buffer.raw,
+                vk::CommandBufferResetFlags::RELEASE_RESOURCES,
+            )?;
+        }
+
+        let color_attachment_info = vk::RenderingAttachmentInfo::builder()
+            .image_view(self.swapchain.image_views[index as usize]) // TODO: get correct index here
+            .image_layout(vk::ImageLayout::ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [1.0, 0.0, 0.0, 1.0],
+                },
+            })
+            .build();
+
+        // log::info!("bruh");
+
+        let color_attachments = vec![color_attachment_info];
+
+        let rendering_info = vk::RenderingInfo::builder()
+            .render_area(vk::Rect2D {
+                extent: vk::Extent2D {
+                    width: self.window.inner_size().width,
+                    height: self.window.inner_size().height,
+                },
+                ..Default::default()
+            })
+            .layer_count(1)
+            .color_attachments(&color_attachments);
+
+        let dyn_rendering_loader = khr::DynamicRendering::new(&self.instance.raw, &self.device.raw);
+        unsafe {
+            dyn_rendering_loader
+                .cmd_begin_rendering(self.device.main_command_buffer.raw, &rendering_info);
+
+            // self.device
+            //     .raw
+            //     .cmd_draw(self.device.main_command_buffer.raw, 1, 1, 0, 0);
+
+            dyn_rendering_loader.cmd_end_rendering(self.device.main_command_buffer.raw);
+        }
+
+        let submit_info = vk::SubmitInfo::builder()
+            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+            .wait_semaphores(&[self.device.present_semaphore])
+            .signal_semaphores(&[self.device.render_semaphore])
+            .command_buffers(&[self.device.main_command_buffer.raw])
+            .build();
+
+        unsafe {
+            self.device.raw.queue_submit(
+                self.device.graphics_queue.raw,
+                &[submit_info],
+                self.device.render_fence,
+            )?;
+        }
+
+        // let present_info = vk::PresentInfoKHR::builder()
+        // .
+
+        Ok(())
+    }
+
     pub fn render_loop(&self) {
         self.event_loop
             .borrow_mut()
@@ -165,6 +252,9 @@ impl PoogieApp {
                             },
                         ..
                     } => *control_flow = ControlFlow::Exit,
+                    Event::MainEventsCleared => {
+                        self.draw().unwrap();
+                    }
                     _ => (),
                 }
             });
