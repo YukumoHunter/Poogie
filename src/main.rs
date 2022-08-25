@@ -20,7 +20,7 @@ fn main() {
     env_logger::init();
     let mut poogie = PoogieApp::builder()
         .debug_graphics(true)
-        .build(window)
+        .build(window.clone())
         .unwrap();
 
     let mut frame = 0;
@@ -45,8 +45,16 @@ fn main() {
                         },
                     ..
                 } => *control_flow = ControlFlow::Exit,
+                Event::WindowEvent {
+                    event: WindowEvent::Resized(_),
+                    ..
+                } => {
+                    *control_flow = ControlFlow::Wait;
+                }
                 Event::MainEventsCleared => {
-                    poogie.draw(frame).unwrap();
+                    if poogie.draw(frame).is_err() {
+                        poogie.swapchain.recreate(&window).unwrap();
+                    };
                     frame += 1;
                 }
                 _ => (),
