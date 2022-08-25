@@ -19,6 +19,9 @@ pub struct Swapchain {
     pub acquire_semaphores: Vec<vk::Semaphore>,
     pub finished_render_semaphores: Vec<vk::Semaphore>,
     pub next_semaphore: usize,
+
+    pub device: Arc<Device>,
+    pub surface: Arc<Surface>,
 }
 
 pub struct SwapchainImage {
@@ -41,6 +44,49 @@ impl Swapchain {
     }
 
     pub fn new(device: &Arc<Device>, surface: &Arc<Surface>, desc: SwapchainDesc) -> Result<Self> {
+        let (loader, raw) = Self::create_raw(device, surface, &desc)?;
+        log::info!("Created swapchain!");
+
+        let images = Self::create_images(&loader, raw)?;
+        let image_views = Self::create_image_views(device, &desc, &images);
+
+        let acquire_semaphores = (0..images.len())
+            .map(|_| unsafe {
+                device
+                    .raw
+                    .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
+                    .unwrap()
+            })
+            .collect();
+
+        let finished_render_semaphores = (0..images.len())
+            .map(|_| unsafe {
+                device
+                    .raw
+                    .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
+                    .unwrap()
+            })
+            .collect();
+
+        Ok(Swapchain {
+            raw,
+            loader,
+            desc,
+            images,
+            image_views,
+            acquire_semaphores,
+            finished_render_semaphores,
+            next_semaphore: 0,
+            device: device.clone(),
+            surface: surface.clone(),
+        })
+    }
+
+    pub fn create_raw(
+        device: &Arc<Device>,
+        surface: &Arc<Surface>,
+        desc: &SwapchainDesc,
+    ) -> Result<(khr::Swapchain, vk::SwapchainKHR)> {
         let surface_capabilities = unsafe {
             surface
                 .loader
@@ -109,13 +155,25 @@ impl Swapchain {
         let loader = khr::Swapchain::new(&device.instance.raw, &device.raw);
         let raw = unsafe { loader.create_swapchain(&swapchain_create_info, None)? };
 
-        log::info!("Created swapchain!");
+        Ok((loader, raw))
+    }
 
-        let images = unsafe { loader.get_swapchain_images(raw)? }
+    pub fn create_images(
+        loader: &khr::Swapchain,
+        raw: vk::SwapchainKHR,
+    ) -> Result<Vec<Arc<vk::Image>>> {
+        Ok(unsafe { loader.get_swapchain_images(raw)? }
             .into_iter()
             .map(Arc::new)
-            .collect::<Vec<_>>();
-        let image_views = images
+            .collect::<Vec<_>>())
+    }
+
+    pub fn create_image_views(
+        device: &Arc<Device>,
+        desc: &SwapchainDesc,
+        images: &Vec<Arc<vk::Image>>,
+    ) -> Vec<vk::ImageView> {
+        images
             .iter()
             .map(|image| unsafe {
                 let image_view_info = vk::ImageViewCreateInfo::builder()
@@ -145,56 +203,33 @@ impl Swapchain {
                     .create_image_view(&image_view_info, None)
                     .expect("Failed to create image view!")
             })
-            .collect::<Vec<vk::ImageView>>();
-
-        let acquire_semaphores = (0..images.len())
-            .map(|_| unsafe {
-                device
-                    .raw
-                    .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
-                    .unwrap()
-            })
-            .collect();
-
-        let finished_render_semaphores = (0..images.len())
-            .map(|_| unsafe {
-                device
-                    .raw
-                    .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
-                    .unwrap()
-            })
-            .collect();
-
-        Ok(Swapchain {
-            raw,
-            loader,
-            desc,
-            images,
-            image_views,
-            acquire_semaphores,
-            finished_render_semaphores,
-            next_semaphore: 0,
-        })
+            .collect::<Vec<vk::ImageView>>()
     }
 
-    pub fn acquire_next_image(&mut self) -> Result<SwapchainImage> {
+    pub fn create_semaphores(device: &Arc<Device>, amount: usize) -> Vec<vk::Semaphore> {
+        (0..amount)
+            .map(|_| unsafe {
+                device
+                    .raw
+                    .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
+                    .expect("Failed to create semaphore!")
+            })
+            .collect()
+    }
+
+    pub fn acquire_next_image(&mut self) -> Option<SwapchainImage> {
         let acquire_semaphore = self.acquire_semaphores[self.next_semaphore];
         let finished_render_semaphore = self.finished_render_semaphores[self.next_semaphore];
 
         let present_result = unsafe {
-            self.loader.acquire_next_image(
-                self.raw,
-                1000000000,
-                // u64::MAX,
-                acquire_semaphore,
-                vk::Fence::null(),
-            )
+            self.loader
+                .acquire_next_image(self.raw, u64::MAX, acquire_semaphore, vk::Fence::null())
         };
 
         match present_result {
             Ok((present_index, _)) => {
                 self.next_semaphore = (self.next_semaphore + 1) % self.images.len();
-                Ok(SwapchainImage {
+                Some(SwapchainImage {
                     image: self.images[present_index as usize].clone(),
                     index: present_index,
                     acquire_semaphore,
@@ -205,12 +240,52 @@ impl Swapchain {
                 if err == vk::Result::ERROR_OUT_OF_DATE_KHR
                     || err == vk::Result::SUBOPTIMAL_KHR =>
             {
-                // recreate framebuffer
-                anyhow::bail!("Recreate framebuffer");
+                // will recreate framebuffer next frame
+                None
             }
             err => {
                 panic!("Could not acquire swapchain image: {:?}", err);
             }
         }
+    }
+
+    pub fn recreate(&mut self, window: &Arc<winit::window::Window>) -> Result<()> {
+        unsafe { self.device.raw.device_wait_idle()? };
+        let window_size = window.inner_size();
+
+        // Do not recreate when minimized
+        if window_size.width == 0 && window_size.height == 0 {
+            return Ok(());
+        }
+
+        self.cleanup();
+
+        self.desc.extent = vk::Extent2D::builder()
+            .width(window_size.width)
+            .height(window_size.height)
+            .build();
+
+        (_, self.raw) = Self::create_raw(&self.device, &self.surface, &self.desc)?;
+        self.images = Self::create_images(&self.loader, self.raw)?;
+        self.image_views = Self::create_image_views(&self.device, &self.desc, &self.images);
+        self.acquire_semaphores = Self::create_semaphores(&self.device, self.images.len());
+        self.finished_render_semaphores = Self::create_semaphores(&self.device, self.images.len());
+
+        Ok(())
+    }
+
+    fn cleanup(&mut self) {
+        unsafe {
+            self.image_views
+                .iter()
+                .for_each(|view| self.device.raw.destroy_image_view(*view, None));
+            self.loader.destroy_swapchain(self.raw, None);
+        }
+    }
+}
+
+impl Drop for Swapchain {
+    fn drop(&mut self) {
+        self.cleanup();
     }
 }

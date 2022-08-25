@@ -93,11 +93,12 @@ impl PoogieApp {
             panic!("Surface format is not supported!");
         }
 
+        let window_size = window.inner_size();
         let swapchain_desc = SwapchainDesc {
             format: preferred_format,
             extent: vk::Extent2D::builder()
-                .width(window.inner_size().width)
-                .height(window.inner_size().height)
+                .width(window_size.width)
+                .height(window_size.height)
                 .build(),
             vsync: builder.vsync,
         };
@@ -117,15 +118,18 @@ impl PoogieApp {
             self.device
                 .raw
                 .wait_for_fences(&[self.device.render_fence], true, u64::MAX)?;
-            self.device.raw.reset_fences(&[self.device.render_fence])?;
         }
 
-        let swapchain_image = self
-            .swapchain
-            .acquire_next_image()
-            .expect("Failed to get swapchain image");
+        let swapchain_image = match self.swapchain.acquire_next_image() {
+            Some(img) => img,
+            None => {
+                anyhow::bail!("Bad swapchain image");
+            }
+        };
 
         unsafe {
+            self.device.raw.reset_fences(&[self.device.render_fence])?;
+
             self.device.raw.reset_command_buffer(
                 self.device.main_command_buffer.raw,
                 vk::CommandBufferResetFlags::RELEASE_RESOURCES,
@@ -184,10 +188,10 @@ impl PoogieApp {
 
         let rendering_info = vk::RenderingInfo::builder()
             .render_area(vk::Rect2D {
-                extent: vk::Extent2D {
-                    width: self.window.inner_size().width,
-                    height: self.window.inner_size().height,
-                },
+                extent: vk::Extent2D::builder()
+                    .width(self.swapchain.desc.extent.width)
+                    .height(self.swapchain.desc.extent.height)
+                    .build(),
                 ..Default::default()
             })
             .layer_count(1)
@@ -268,7 +272,7 @@ impl PoogieApp {
                 Ok(_) => (),
                 Err(e) => {
                     if e == vk::Result::ERROR_OUT_OF_DATE_KHR || e == vk::Result::SUBOPTIMAL_KHR {
-                        panic!("{}", e);
+                        anyhow::bail!("Bad swapchain image");
                     }
                 }
             }
