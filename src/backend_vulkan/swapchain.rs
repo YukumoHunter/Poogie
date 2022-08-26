@@ -171,7 +171,7 @@ impl Swapchain {
     pub fn create_image_views(
         device: &Arc<Device>,
         desc: &SwapchainDesc,
-        images: &Vec<Arc<vk::Image>>,
+        images: &[Arc<vk::Image>],
     ) -> Vec<vk::ImageView> {
         images
             .iter()
