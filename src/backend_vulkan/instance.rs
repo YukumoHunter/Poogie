@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub struct InstanceBuilder {
+    pub app_name: String,
     pub required_extensions: Vec<&'static str>,
     pub debug_graphics: bool,
 }
@@ -25,6 +26,11 @@ impl InstanceBuilder {
 
     pub fn debug_graphics(mut self, debug_graphics: bool) -> Self {
         self.debug_graphics = debug_graphics;
+        self
+    }
+
+    pub fn app_name(mut self, app_name: String) -> Self {
+        self.app_name = app_name;
         self
     }
 }
@@ -61,8 +67,8 @@ impl Instance {
     }
 
     fn create(builder: InstanceBuilder) -> Result<Self> {
-        let app_name = CString::new("PoogieApp").unwrap();
-        let engine_name = CString::new("PoogieEngine").unwrap();
+        let app_name = CString::new(builder.app_name.clone())?;
+        let engine_name = CString::new("PoogieEngine")?;
 
         let entry = unsafe { ash::Entry::load()? };
 

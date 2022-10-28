@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[derive(Clone, Copy, Default)]
 pub struct SwapchainDesc {
-    pub format: vk::SurfaceFormatKHR,
+    pub surface_format: vk::SurfaceFormatKHR,
     pub extent: vk::Extent2D,
     pub vsync: bool,
 }
@@ -142,7 +142,7 @@ impl Swapchain {
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surface.raw)
             .min_image_count(image_count)
-            .image_format(desc.format.format)
+            .image_format(desc.surface_format.format)
             .image_extent(desc.extent)
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
@@ -178,7 +178,7 @@ impl Swapchain {
             .map(|image| unsafe {
                 let image_view_info = vk::ImageViewCreateInfo::builder()
                     .image(**image)
-                    .format(desc.format.format)
+                    .format(desc.surface_format.format)
                     .view_type(vk::ImageViewType::TYPE_2D)
                     .components(
                         vk::ComponentMapping::builder()

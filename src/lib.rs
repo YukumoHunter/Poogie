@@ -1,32 +1,43 @@
 pub mod backend_vulkan;
 
 use anyhow::Result;
-use ash::{extensions::khr, vk};
+use ash::vk;
 use backend_vulkan::{
     device::Device,
     instance::Instance,
     physical_device::PhysicalDevice,
+    pipeline::GraphicsPipeline,
+    shader::{ShaderLanguage, ShaderStage},
     surface::Surface,
     swapchain::{Swapchain, SwapchainDesc},
 };
-use std::{ffi::CStr, sync::Arc};
+use std::{ffi::CStr, path::PathBuf, sync::Arc};
 
-pub struct PoogieApp {
+use crate::backend_vulkan::shader::ShaderDesc;
+
+pub struct PoogieRenderer {
     pub window: Arc<winit::window::Window>,
+    #[allow(dead_code)]
     pub instance: Arc<Instance>,
     pub device: Arc<Device>,
+    #[allow(dead_code)]
     pub surface: Arc<Surface>,
     pub swapchain: Swapchain,
+    pub frame_number: u64,
+    shader_descs: Vec<ShaderDesc>,
+    pipeline: GraphicsPipeline,
 }
 
-pub struct PoogieAppBuilder {
+pub struct PoogieRendererBuilder {
+    app_name: String,
     debug_graphics: bool,
     vsync: bool,
 }
 
-impl PoogieAppBuilder {
+impl PoogieRendererBuilder {
     pub fn default() -> Self {
-        PoogieAppBuilder {
+        PoogieRendererBuilder {
+            app_name: "PoogieApp".to_string(),
             debug_graphics: false,
             vsync: true,
         }
@@ -42,17 +53,20 @@ impl PoogieAppBuilder {
         self
     }
 
-    pub fn build(self, window: Arc<winit::window::Window>) -> Result<PoogieApp> {
-        PoogieApp::create(self, window)
+    pub fn build(self, window: Arc<winit::window::Window>) -> Result<PoogieRenderer> {
+        PoogieRenderer::create(self, window)
     }
 }
 
-impl PoogieApp {
-    pub fn builder() -> PoogieAppBuilder {
-        PoogieAppBuilder::default()
+impl PoogieRenderer {
+    pub fn builder() -> PoogieRendererBuilder {
+        PoogieRendererBuilder::default()
     }
 
-    pub fn create(builder: PoogieAppBuilder, window: Arc<winit::window::Window>) -> Result<Self> {
+    pub fn create(
+        builder: PoogieRendererBuilder,
+        window: Arc<winit::window::Window>,
+    ) -> Result<Self> {
         let window_ext = ash_window::enumerate_required_extensions(&*window)
             .expect("Failed to get required instance extensions required for window")
             .iter()
@@ -60,6 +74,7 @@ impl PoogieApp {
             .collect();
 
         let instance = Instance::builder()
+            .app_name(builder.app_name)
             .debug_graphics(builder.debug_graphics)
             .required_extensions(window_ext)
             .build()?;
@@ -71,13 +86,14 @@ impl PoogieApp {
                 // `max_by_key` selects the last device in case there are multiple
                 // we want to their order preserved
                 .rev()
+                .filter(|device| device.dyn_rendering_supported.dynamic_rendering != 0)
                 .max_by_key(|device| match device.properties.device_type {
                     vk::PhysicalDeviceType::DISCRETE_GPU => 100,
                     vk::PhysicalDeviceType::INTEGRATED_GPU => 10,
                     vk::PhysicalDeviceType::VIRTUAL_GPU => 1,
                     _ => 0,
                 })
-                .unwrap(),
+                .expect("No suitable GPU found"),
         );
 
         let device = Device::new(&pdevice)?;
@@ -95,7 +111,7 @@ impl PoogieApp {
 
         let window_size = window.inner_size();
         let swapchain_desc = SwapchainDesc {
-            format: preferred_format,
+            surface_format: preferred_format,
             extent: vk::Extent2D::builder()
                 .width(window_size.width)
                 .height(window_size.height)
@@ -104,16 +120,43 @@ impl PoogieApp {
         };
         let swapchain = Swapchain::new(&device, &surface, swapchain_desc)?;
 
-        Ok(PoogieApp {
+        let vertex_shader_desc = ShaderDesc::builder().build(
+            ShaderStage::Vertex,
+            ShaderLanguage::GLSL,
+            PathBuf::from("./src/shaders/shader.vert"),
+        );
+
+        let fragment_shader_desc = ShaderDesc::builder().build(
+            ShaderStage::Fragment,
+            ShaderLanguage::GLSL,
+            PathBuf::from("./src/shaders/shader.frag"),
+        );
+
+        let shader_descs = vec![vertex_shader_desc, fragment_shader_desc];
+
+        let pipeline = GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
+
+        Ok(PoogieRenderer {
             window,
             instance,
             device,
             surface,
             swapchain,
+            frame_number: 0,
+            shader_descs,
+            pipeline,
         })
     }
 
-    pub fn draw(&mut self, frame_number: i32) -> Result<()> {
+    pub fn recreate_swapchain(&mut self) -> Result<()> {
+        self.pipeline =
+            GraphicsPipeline::create_pipeline(&self.device, &self.swapchain, &self.shader_descs)?;
+        self.swapchain.recreate(&self.window)
+    }
+
+    pub fn draw(&mut self) -> Result<std::time::Duration> {
+        let timer = std::time::Instant::now();
+
         unsafe {
             self.device
                 .raw
@@ -127,12 +170,14 @@ impl PoogieApp {
             }
         };
 
+        let command_buffer = self.device.main_command_buffer.raw;
+
         unsafe {
             self.device.raw.reset_fences(&[self.device.render_fence])?;
 
-            self.device.raw.reset_command_buffer(
-                self.device.main_command_buffer.raw,
-                vk::CommandBufferResetFlags::RELEASE_RESOURCES,
+            self.device.raw.reset_command_pool(
+                self.device.main_command_buffer.pool,
+                vk::CommandPoolResetFlags::RELEASE_RESOURCES,
             )?;
         }
 
@@ -142,7 +187,7 @@ impl PoogieApp {
         unsafe {
             self.device
                 .raw
-                .begin_command_buffer(self.device.main_command_buffer.raw, &cmd_info)?
+                .begin_command_buffer(command_buffer, &cmd_info)?
         };
 
         // manually set image to a renderable layout
@@ -162,7 +207,7 @@ impl PoogieApp {
 
         unsafe {
             self.device.raw.cmd_pipeline_barrier(
-                self.device.main_command_buffer.raw,
+                command_buffer,
                 vk::PipelineStageFlags::TOP_OF_PIPE,
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::DependencyFlags::empty(),
@@ -179,7 +224,7 @@ impl PoogieApp {
             .store_op(vk::AttachmentStoreOp::STORE)
             .clear_value(vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [((frame_number as f32 % 255.) / 255.), 0.0, 0.0, 1.0],
+                    float32: [0.0, ((self.frame_number as f32 % 255.) / 255.), 0.0, 1.0],
                 },
             })
             .build();
@@ -197,16 +242,20 @@ impl PoogieApp {
             .layer_count(1)
             .color_attachments(&color_attachments);
 
-        let dyn_rendering_loader = khr::DynamicRendering::new(&self.instance.raw, &self.device.raw);
         unsafe {
-            dyn_rendering_loader
-                .cmd_begin_rendering(self.device.main_command_buffer.raw, &rendering_info);
+            self.device
+                .raw
+                .cmd_begin_rendering(command_buffer, &rendering_info);
 
-            // self.device
-            //     .raw
-            //     .cmd_draw(self.device.main_command_buffer.raw, 1, 1, 0, 0);
+            self.device.raw.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline.pipeline,
+            );
 
-            dyn_rendering_loader.cmd_end_rendering(self.device.main_command_buffer.raw);
+            self.device.raw.cmd_draw(command_buffer, 3, 1, 0, 0);
+
+            self.device.raw.cmd_end_rendering(command_buffer);
         }
 
         // manually set image to a presentable layout
@@ -226,7 +275,7 @@ impl PoogieApp {
 
         unsafe {
             self.device.raw.cmd_pipeline_barrier(
-                self.device.main_command_buffer.raw,
+                command_buffer,
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                 vk::DependencyFlags::empty(),
@@ -236,17 +285,13 @@ impl PoogieApp {
             );
         }
 
-        unsafe {
-            self.device
-                .raw
-                .end_command_buffer(self.device.main_command_buffer.raw)?
-        };
+        unsafe { self.device.raw.end_command_buffer(command_buffer)? };
 
         let submit_info = vk::SubmitInfo::builder()
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
             .wait_semaphores(&[swapchain_image.acquire_semaphore])
             .signal_semaphores(&[swapchain_image.finished_render_semaphore])
-            .command_buffers(&[self.device.main_command_buffer.raw])
+            .command_buffers(&[command_buffer])
             .build();
 
         unsafe {
@@ -278,6 +323,12 @@ impl PoogieApp {
             }
         };
 
-        Ok(())
+        self.frame_number += 1;
+
+        Ok(timer.elapsed())
+    }
+
+    pub fn frame_number(&self) -> u64 {
+        self.frame_number
     }
 }

@@ -18,15 +18,14 @@ pub struct CommandBuffer {
 }
 
 impl CommandBuffer {
-    pub fn new(device: &ash::Device, queue_family: &QueueFamily) -> Result<Self> {
-        let pool_create_info = vk::CommandPoolCreateInfo::builder()
-            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-            .queue_family_index(queue_family.index);
+    pub fn new(device: &ash::Device, queue_family: &QueueFamily, amount: u32) -> Result<Self> {
+        let pool_create_info =
+            vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family.index);
 
         let pool = unsafe { device.create_command_pool(&pool_create_info, None)? };
 
         let cmd_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-            .command_buffer_count(1)
+            .command_buffer_count(amount)
             .command_pool(pool)
             .level(vk::CommandBufferLevel::PRIMARY);
 
@@ -77,10 +76,7 @@ impl Device {
                 .collect()
         };
 
-        let device_ext_names = vec![
-            khr::Swapchain::name().as_ptr(),
-            khr::DynamicRendering::name().as_ptr(),
-        ];
+        let device_ext_names = vec![khr::Swapchain::name().as_ptr()];
 
         unsafe {
             for &ext in &device_ext_names {
@@ -133,13 +129,13 @@ impl Device {
             );
         };
 
-        let mut dyn_rendering =
-            vk::PhysicalDeviceDynamicRenderingFeatures::builder().dynamic_rendering(true);
+        let mut features13 = vk::PhysicalDeviceVulkan13Features::builder().dynamic_rendering(true);
+        let mut features = vk::PhysicalDeviceFeatures2::builder().push_next(&mut features13);
 
         let device_create_info = vk::DeviceCreateInfo::builder()
             .enabled_extension_names(&device_ext_names)
             .queue_create_infos(&queue_create_infos)
-            .push_next(&mut dyn_rendering);
+            .push_next(&mut features);
 
         let device = unsafe {
             pdevice
@@ -160,7 +156,7 @@ impl Device {
             family,
         });
 
-        let main_command_buffer = CommandBuffer::new(&device, &graphics_queue_family)?;
+        let main_command_buffer = CommandBuffer::new(&device, &graphics_queue_family, 1)?;
 
         let fence_create_info =
             vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
