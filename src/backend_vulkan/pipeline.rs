@@ -1,10 +1,12 @@
+use std::ffi::CString;
+
 use super::{
     device::Device,
     initializers::{
         self, pipeline_color_blend_attachment_state, pipeline_input_assembly_create_info,
         pipeline_rasterization_state_create_info,
     },
-    shader::ShaderDesc,
+    shader::ShaderSource,
     swapchain::Swapchain,
 };
 use anyhow::Result;
@@ -19,7 +21,7 @@ impl GraphicsPipeline {
     pub fn create_pipeline(
         device: &Device,
         swapchain: &Swapchain,
-        shaders: &[ShaderDesc],
+        shaders: &[ShaderSource],
     ) -> Result<Self> {
         let viewports = [vk::Viewport::builder()
             .x(0.0)
@@ -41,17 +43,24 @@ impl GraphicsPipeline {
             .scissor_count(1)
             .scissors(&scissors);
 
+        let mut entry_points = vec![];
+
         let stages = shaders
             .iter()
-            .map(|desc| {
-                let module = desc
+            .enumerate()
+            .map(|(i, source)| {
+                let module = source
                     .clone()
                     .create_shader()
                     .expect("Error creating shader")
                     .create_module(device)
                     .unwrap();
 
-                initializers::pipeline_shader_stage_create_info(module, desc).build()
+                entry_points.push(CString::new(source.entry.clone()).expect("Invalid entrypoint"));
+
+                initializers::pipeline_shader_stage_create_info(module, source)
+                    .name(&entry_points[i])
+                    .build()
             })
             .collect::<Vec<vk::PipelineShaderStageCreateInfo>>();
 
@@ -71,6 +80,9 @@ impl GraphicsPipeline {
             .logic_op(vk::LogicOp::COPY)
             .attachments(&color_blend_attachments);
 
+        let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
+            .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
+
         let layout_create_info = vk::PipelineLayoutCreateInfo::builder();
 
         let layout = unsafe {
@@ -79,9 +91,11 @@ impl GraphicsPipeline {
                 .create_pipeline_layout(&layout_create_info, None)?
         };
 
-        let mut rendering_info = vk::PipelineRenderingCreateInfo::builder()
-            .color_attachment_formats(&[swapchain.desc.surface_format.format])
-            .build();
+        log::debug!("Pipeline format {:?}", swapchain.desc.surface_format);
+
+        let formats = [swapchain.desc.surface_format.format];
+        let mut rendering_info =
+            vk::PipelineRenderingCreateInfo::builder().color_attachment_formats(&formats);
 
         let pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
             .stages(&stages)
@@ -91,6 +105,7 @@ impl GraphicsPipeline {
             .multisample_state(&multisampling)
             .viewport_state(&viewport_state)
             .color_blend_state(&color_blend_state)
+            .dynamic_state(&dynamic_state)
             .layout(layout)
             .push_next(&mut rendering_info);
 

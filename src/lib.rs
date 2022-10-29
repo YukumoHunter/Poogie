@@ -7,13 +7,11 @@ use backend_vulkan::{
     instance::Instance,
     physical_device::PhysicalDevice,
     pipeline::GraphicsPipeline,
-    shader::{ShaderLanguage, ShaderStage},
+    shader::{ShaderLanguage, ShaderSource, ShaderStage},
     surface::Surface,
     swapchain::{Swapchain, SwapchainDesc},
 };
 use std::{ffi::CStr, path::PathBuf, sync::Arc};
-
-use crate::backend_vulkan::shader::ShaderDesc;
 
 pub struct PoogieRenderer {
     pub window: Arc<winit::window::Window>,
@@ -24,7 +22,8 @@ pub struct PoogieRenderer {
     pub surface: Arc<Surface>,
     pub swapchain: Swapchain,
     pub frame_number: u64,
-    shader_descs: Vec<ShaderDesc>,
+    #[allow(dead_code)]
+    shaders: Vec<ShaderSource>,
     pipeline: GraphicsPipeline,
 }
 
@@ -120,19 +119,25 @@ impl PoogieRenderer {
         };
         let swapchain = Swapchain::new(&device, &surface, swapchain_desc)?;
 
-        let vertex_shader_desc = ShaderDesc::builder().build(
-            ShaderStage::Vertex,
-            ShaderLanguage::GLSL,
-            PathBuf::from("./src/shaders/shader.vert"),
-        );
+        log::debug!("Preferred format {:?}", preferred_format);
 
-        let fragment_shader_desc = ShaderDesc::builder().build(
-            ShaderStage::Fragment,
-            ShaderLanguage::GLSL,
-            PathBuf::from("./src/shaders/shader.frag"),
-        );
+        let vertex_shader = ShaderSource::builder()
+            .entry(String::from("vs_main"))
+            .build(
+                ShaderStage::Vertex,
+                ShaderLanguage::WGSL,
+                PathBuf::from("./src/shaders/shader.wgsl"),
+            );
 
-        let shader_descs = vec![vertex_shader_desc, fragment_shader_desc];
+        let fragment_shader = ShaderSource::builder()
+            .entry(String::from("fs_main"))
+            .build(
+                ShaderStage::Fragment,
+                ShaderLanguage::WGSL,
+                PathBuf::from("./src/shaders/shader.wgsl"),
+            );
+
+        let shader_descs = vec![vertex_shader, fragment_shader];
 
         let pipeline = GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
 
@@ -143,14 +148,12 @@ impl PoogieRenderer {
             surface,
             swapchain,
             frame_number: 0,
-            shader_descs,
+            shaders: shader_descs,
             pipeline,
         })
     }
 
     pub fn recreate_swapchain(&mut self) -> Result<()> {
-        self.pipeline =
-            GraphicsPipeline::create_pipeline(&self.device, &self.swapchain, &self.shader_descs)?;
         self.swapchain.recreate(&self.window)
     }
 
@@ -184,11 +187,34 @@ impl PoogieRenderer {
         let cmd_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
+        let viewports = [vk::Viewport::builder()
+            .x(0.0)
+            .y(0.0)
+            .width(self.swapchain.desc.extent.width as f32)
+            .height(self.swapchain.desc.extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0)
+            .build()];
+
+        let scissors = [vk::Rect2D::builder()
+            .offset(vk::Offset2D::builder().x(0).y(0).build())
+            .extent(self.swapchain.desc.extent)
+            .build()];
+
         unsafe {
             self.device
                 .raw
-                .begin_command_buffer(command_buffer, &cmd_info)?
-        };
+                .begin_command_buffer(command_buffer, &cmd_info)?;
+
+            // set dynamic states
+            self.device
+                .raw
+                .cmd_set_viewport(command_buffer, 0, &viewports);
+
+            self.device
+                .raw
+                .cmd_set_scissor(command_buffer, 0, &scissors);
+        }
 
         // manually set image to a renderable layout
         let img_memory_barrier = vk::ImageMemoryBarrier::builder()
@@ -224,7 +250,12 @@ impl PoogieRenderer {
             .store_op(vk::AttachmentStoreOp::STORE)
             .clear_value(vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, ((self.frame_number as f32 % 255.) / 255.), 0.0, 1.0],
+                    float32: [
+                        ((self.frame_number as f32 / 3.0 % 255.0) / 255.0),
+                        ((self.frame_number as f32 / 4.0 % 255.0) / 255.0),
+                        ((self.frame_number as f32 / 5.0 % 255.0) / 255.0),
+                        1.0,
+                    ],
                 },
             })
             .build();

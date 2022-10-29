@@ -7,15 +7,15 @@ use naga::{
     front::wgsl,
     valid::{Capabilities, ValidationFlags},
 };
-use std::{ffi::CString, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShaderLanguage {
     GLSL,
     WGSL,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShaderStage {
     Vertex,
     Fragment,
@@ -23,24 +23,29 @@ pub enum ShaderStage {
 }
 
 #[derive(Clone, Debug)]
-pub struct ShaderDescBuilder {
-    pub entry: CString,
+pub struct ShaderSourceBuilder {
+    pub entry: String,
 }
 
-impl ShaderDescBuilder {
+impl ShaderSourceBuilder {
     pub fn default() -> Self {
-        ShaderDescBuilder {
-            entry: CString::new("main").unwrap(),
+        ShaderSourceBuilder {
+            entry: String::from("main"),
         }
     }
 
-    pub fn entry(mut self, entry: CString) -> Self {
+    pub fn entry(mut self, entry: String) -> Self {
         self.entry = entry;
         self
     }
 
-    pub fn build(self, stage: ShaderStage, language: ShaderLanguage, path: PathBuf) -> ShaderDesc {
-        ShaderDesc {
+    pub fn build(
+        self,
+        stage: ShaderStage,
+        language: ShaderLanguage,
+        path: PathBuf,
+    ) -> ShaderSource {
+        ShaderSource {
             stage,
             language,
             path,
@@ -50,20 +55,20 @@ impl ShaderDescBuilder {
 }
 
 #[derive(Clone, Debug)]
-pub struct ShaderDesc {
+pub struct ShaderSource {
     pub stage: ShaderStage,
     pub language: ShaderLanguage,
     pub path: PathBuf,
-    pub entry: CString,
+    pub entry: String,
 }
 
-impl ShaderDesc {
-    pub fn builder() -> ShaderDescBuilder {
-        ShaderDescBuilder::default()
+impl ShaderSource {
+    pub fn builder() -> ShaderSourceBuilder {
+        ShaderSourceBuilder::default()
     }
 
     pub fn create_shader(self) -> Result<Shader> {
-        let desc = self.clone();
+        let source = self.clone();
 
         let buf = fs::read_to_string(self.path)?;
 
@@ -91,18 +96,33 @@ impl ShaderDesc {
             naga::valid::Validator::new(ValidationFlags::empty(), Capabilities::empty())
                 .validate(&module)?;
 
+        log::debug!(
+            "Shader entry points: {:?}",
+            module
+                .entry_points
+                .iter()
+                .map(|e| &e.name)
+                .collect::<Vec<&String>>()
+        );
+
+        let pipeline_opts = &PipelineOptions {
+            shader_stage: naga_stage,
+            entry_point: module.entry_points[0].name.clone(),
+        };
+
         let code = spv::write_vec(
             &module,
             &module_info,
             &spv::Options::default(),
-            Some(&PipelineOptions {
-                shader_stage: naga_stage,
-                entry_point: module.entry_points[0].name.clone(),
-            }),
+            if self.language == ShaderLanguage::WGSL {
+                None
+            } else {
+                Some(pipeline_opts)
+            },
         )?;
 
-        let shader = Shader { code, desc };
-        log::info!("Loaded shader {:?}", shader.desc);
+        let shader = Shader { code, source };
+        log::info!("Loaded shader {:?}", shader.source);
 
         Ok(shader)
     }
@@ -110,7 +130,7 @@ impl ShaderDesc {
 
 pub struct Shader {
     pub code: Vec<u32>,
-    pub desc: ShaderDesc,
+    pub source: ShaderSource,
 }
 
 impl Shader {

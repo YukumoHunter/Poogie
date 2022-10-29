@@ -1,19 +1,18 @@
-use super::shader::{ShaderDesc, ShaderStage};
+use super::shader::{ShaderSource, ShaderStage};
 use ash::vk;
 
 #[inline(always)]
 pub fn pipeline_shader_stage_create_info(
     shader_module: vk::ShaderModule,
-    desc: &ShaderDesc,
+    shader_source: &ShaderSource,
 ) -> vk::PipelineShaderStageCreateInfoBuilder {
     vk::PipelineShaderStageCreateInfo::builder()
-        .stage(match desc.stage {
+        .stage(match shader_source.stage {
             ShaderStage::Vertex => vk::ShaderStageFlags::VERTEX,
             ShaderStage::Fragment => vk::ShaderStageFlags::FRAGMENT,
             ShaderStage::Compute => vk::ShaderStageFlags::COMPUTE,
         })
         .module(shader_module)
-        .name(&desc.entry)
 }
 
 #[inline(always)]

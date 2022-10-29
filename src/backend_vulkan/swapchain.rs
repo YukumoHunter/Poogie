@@ -182,10 +182,10 @@ impl Swapchain {
                     .view_type(vk::ImageViewType::TYPE_2D)
                     .components(
                         vk::ComponentMapping::builder()
-                            .a(vk::ComponentSwizzle::A)
                             .r(vk::ComponentSwizzle::R)
                             .g(vk::ComponentSwizzle::G)
                             .b(vk::ComponentSwizzle::B)
+                            .a(vk::ComponentSwizzle::A)
                             .build(),
                     )
                     .subresource_range(

@@ -19,7 +19,7 @@ fn main() {
 
     env_logger::init();
     let mut poogie = PoogieRenderer::builder()
-        .debug_graphics(false)
+        .debug_graphics(true)
         .vsync(false)
         .build(window.clone())
         .unwrap();
