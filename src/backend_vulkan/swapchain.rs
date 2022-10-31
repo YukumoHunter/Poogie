@@ -2,6 +2,7 @@ use super::{device::Device, surface::Surface};
 use anyhow::Result;
 use ash::{extensions::khr, vk};
 use std::sync::Arc;
+use winit::dpi::PhysicalSize;
 
 #[derive(Clone, Copy, Default)]
 pub struct SwapchainDesc {
@@ -249,9 +250,8 @@ impl Swapchain {
         }
     }
 
-    pub fn recreate(&mut self, window: &Arc<winit::window::Window>) -> Result<()> {
+    pub fn recreate(&mut self, window_size: &PhysicalSize<u32>) -> Result<()> {
         unsafe { self.device.raw.device_wait_idle()? };
-        let window_size = window.inner_size();
 
         // Do not recreate when minimized
         if window_size.width == 0 && window_size.height == 0 {

@@ -43,6 +43,12 @@ fn main() {
                         },
                     ..
                 } => *control_flow = ControlFlow::Exit,
+                Event::WindowEvent {
+                    event: WindowEvent::Resized(window_size),
+                    ..
+                } => poogie
+                    .recreate_swapchain(&window_size)
+                    .expect("Error resizing the window"),
                 Event::MainEventsCleared => {
                     if let Ok(elapsed) = poogie.draw() {
                         window.set_title(
@@ -53,8 +59,6 @@ fn main() {
                             )
                             .as_str(),
                         );
-                    } else {
-                        poogie.recreate_swapchain().unwrap();
                     };
                 }
                 _ => (),

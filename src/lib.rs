@@ -12,6 +12,7 @@ use backend_vulkan::{
     swapchain::{Swapchain, SwapchainDesc},
 };
 use std::{ffi::CStr, path::PathBuf, sync::Arc};
+use winit::dpi::PhysicalSize;
 
 pub struct PoogieRenderer {
     pub window: Arc<winit::window::Window>,
@@ -153,8 +154,8 @@ impl PoogieRenderer {
         })
     }
 
-    pub fn recreate_swapchain(&mut self) -> Result<()> {
-        self.swapchain.recreate(&self.window)
+    pub fn recreate_swapchain(&mut self, window_size: &PhysicalSize<u32>) -> Result<()> {
+        self.swapchain.recreate(window_size)
     }
 
     pub fn draw(&mut self) -> Result<std::time::Duration> {
