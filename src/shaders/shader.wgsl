@@ -4,9 +4,9 @@ struct VertOut {
 };
 
 var<private> positions: array<vec3<f32>, 3> = array<vec3<f32>, 3>(
-    vec3<f32>(1.0, -1.0, 0.0),
-    vec3<f32>(-1.0, -1.0, 0.0),
-    vec3<f32>(0.0, 1.0, 0.0),
+    vec3<f32>(0.6, -0.6, 0.0),
+    vec3<f32>(-0.6, -0.6, 0.0),
+    vec3<f32>(0.0, 0.6, 0.0),
 );
 
 var<private> colors: array<vec3<f32>, 3> = array<vec3<f32>, 3>(
