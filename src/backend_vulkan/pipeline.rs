@@ -91,8 +91,6 @@ impl GraphicsPipeline {
                 .create_pipeline_layout(&layout_create_info, None)?
         };
 
-        log::debug!("Pipeline format {:?}", swapchain.desc.surface_format);
-
         let formats = [swapchain.desc.surface_format.format];
         let mut rendering_info =
             vk::PipelineRenderingCreateInfo::builder().color_attachment_formats(&formats);

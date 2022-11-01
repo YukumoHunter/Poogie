@@ -2,9 +2,16 @@ use super::{device::Device, surface::Surface};
 use anyhow::Result;
 use ash::{extensions::khr, vk};
 use std::sync::Arc;
+use thiserror::Error;
 use winit::dpi::PhysicalSize;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Error, Debug)]
+pub enum CreateSwapchainError {
+    #[error("Height or width of the window is zero")]
+    ZeroSizedExtent,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
 pub struct SwapchainDesc {
     pub surface_format: vk::SurfaceFormatKHR,
     pub extent: vk::Extent2D,
@@ -44,11 +51,15 @@ impl Swapchain {
         }
     }
 
-    pub fn new(device: &Arc<Device>, surface: &Arc<Surface>, desc: SwapchainDesc) -> Result<Self> {
+    pub fn create(
+        device: &Arc<Device>,
+        surface: &Arc<Surface>,
+        desc: SwapchainDesc,
+    ) -> Result<Self, CreateSwapchainError> {
         let (loader, raw) = Self::create_raw(device, surface, &desc)?;
-        log::info!("Created swapchain!");
+        log::debug!("Created swapchain!");
 
-        let images = Self::create_images(&loader, raw)?;
+        let images = Self::create_images(&loader, raw).unwrap();
         let image_views = Self::create_image_views(device, &desc, &images);
 
         let acquire_semaphores = (0..images.len())
@@ -87,11 +98,12 @@ impl Swapchain {
         device: &Arc<Device>,
         surface: &Arc<Surface>,
         desc: &SwapchainDesc,
-    ) -> Result<(khr::Swapchain, vk::SwapchainKHR)> {
+    ) -> Result<(khr::Swapchain, vk::SwapchainKHR), CreateSwapchainError> {
         let surface_capabilities = unsafe {
             surface
                 .loader
-                .get_physical_device_surface_capabilities(device.pdevice.raw, surface.raw)?
+                .get_physical_device_surface_capabilities(device.pdevice.raw, surface.raw)
+                .unwrap()
         };
 
         // try to triple-buffer
@@ -100,15 +112,13 @@ impl Swapchain {
             image_count = image_count.min(surface_capabilities.max_image_count);
         }
 
-        log::info!("Creating swapchain with {image_count} images!");
-
         let surface_resolution = match surface_capabilities.current_extent.width {
             std::u32::MAX => desc.extent,
             _ => surface_capabilities.current_extent,
         };
 
         if surface_resolution.width == 0 || surface_resolution.height == 0 {
-            anyhow::bail!("Surface resolution cannot be zero!");
+            return Err(CreateSwapchainError::ZeroSizedExtent);
         }
 
         let present_mode_preference = if desc.vsync {
@@ -120,7 +130,8 @@ impl Swapchain {
         let available_present_modes = unsafe {
             surface
                 .loader
-                .get_physical_device_surface_present_modes(device.pdevice.raw, surface.raw)?
+                .get_physical_device_surface_present_modes(device.pdevice.raw, surface.raw)
+                .unwrap()
         };
 
         let present_mode = present_mode_preference
@@ -128,8 +139,6 @@ impl Swapchain {
             .find(|mode| available_present_modes.contains(mode))
             // FIFO is the only presentation mode to be guaranteed to be available
             .unwrap_or(vk::PresentModeKHR::FIFO);
-
-        log::info!("Creating swapchain using presentation mode {present_mode:?}!");
 
         let pre_transform = if surface_capabilities
             .supported_transforms
@@ -140,11 +149,20 @@ impl Swapchain {
             surface_capabilities.current_transform
         };
 
+        log::debug!(
+            "Creating swapchain with\n\
+            Resolution: {}x{},\n\
+            Image count: {image_count:?},\n\
+            Present mode: {present_mode:?}",
+            surface_resolution.width,
+            surface_resolution.height,
+        );
+
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surface.raw)
             .min_image_count(image_count)
             .image_format(desc.surface_format.format)
-            .image_extent(desc.extent)
+            .image_extent(surface_resolution)
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
@@ -154,7 +172,11 @@ impl Swapchain {
             .clipped(true);
 
         let loader = khr::Swapchain::new(&device.instance.raw, &device.raw);
-        let raw = unsafe { loader.create_swapchain(&swapchain_create_info, None)? };
+        let raw = unsafe {
+            loader
+                .create_swapchain(&swapchain_create_info, None)
+                .unwrap()
+        };
 
         Ok((loader, raw))
     }
@@ -250,8 +272,11 @@ impl Swapchain {
         }
     }
 
-    pub fn recreate(&mut self, window_size: &PhysicalSize<u32>) -> Result<()> {
-        unsafe { self.device.raw.device_wait_idle()? };
+    pub fn recreate(
+        &mut self,
+        window_size: &PhysicalSize<u32>,
+    ) -> Result<(), CreateSwapchainError> {
+        unsafe { self.device.raw.device_wait_idle().unwrap() };
 
         // Do not recreate when minimized
         if window_size.width == 0 && window_size.height == 0 {
@@ -265,8 +290,8 @@ impl Swapchain {
             .height(window_size.height)
             .build();
 
-        (_, self.raw) = Self::create_raw(&self.device, &self.surface, &self.desc)?;
-        self.images = Self::create_images(&self.loader, self.raw)?;
+        (_, self.raw) = Self::create_raw(&self.device, &self.surface, &self.desc).unwrap();
+        self.images = Self::create_images(&self.loader, self.raw).unwrap();
         self.image_views = Self::create_image_views(&self.device, &self.desc, &self.images);
         self.acquire_semaphores = Self::create_semaphores(&self.device, self.images.len());
         self.finished_render_semaphores = Self::create_semaphores(&self.device, self.images.len());

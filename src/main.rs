@@ -8,6 +8,8 @@ use winit::{
 };
 
 fn main() {
+    env_logger::init();
+
     let mut event_loop = EventLoop::new();
     let window = Arc::new(
         WindowBuilder::new()
@@ -17,7 +19,6 @@ fn main() {
             .unwrap(),
     );
 
-    env_logger::init();
     let mut poogie = PoogieRenderer::builder()
         .debug_graphics(true)
         .vsync(false)
@@ -42,23 +43,25 @@ fn main() {
                             ..
                         },
                     ..
-                } => *control_flow = ControlFlow::Exit,
+                } => {
+                    log::info!("Exiting!");
+                    *control_flow = ControlFlow::Exit
+                }
                 Event::WindowEvent {
-                    event: WindowEvent::Resized(window_size),
+                    event: WindowEvent::Resized(_),
                     ..
-                } => poogie
-                    .recreate_swapchain(&window_size)
-                    .expect("Error resizing the window"),
+                } => {
+                    if let Err(e) = poogie.recreate_swapchain() {
+                        log::warn!("Failed to create swapchain: {e:?}: {e}");
+                    }
+                }
                 Event::MainEventsCleared => {
                     if let Ok(elapsed) = poogie.draw() {
-                        window.set_title(
-                            format!(
-                                "Frame time: {:.2}ms, FPS: {}",
-                                elapsed.as_secs_f64() * 1000.0,
-                                (1.0 / elapsed.as_secs_f32()) as u32
-                            )
-                            .as_str(),
-                        );
+                        window.set_title(&format!(
+                            "Frame time: {:.2}ms, FPS: {}",
+                            elapsed.as_secs_f64() * 1000.0,
+                            (1.0 / elapsed.as_secs_f32()) as u32
+                        ));
                     };
                 }
                 _ => (),

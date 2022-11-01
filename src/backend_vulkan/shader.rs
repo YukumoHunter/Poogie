@@ -96,15 +96,6 @@ impl ShaderSource {
             naga::valid::Validator::new(ValidationFlags::empty(), Capabilities::empty())
                 .validate(&module)?;
 
-        log::debug!(
-            "Shader entry points: {:?}",
-            module
-                .entry_points
-                .iter()
-                .map(|e| &e.name)
-                .collect::<Vec<&String>>()
-        );
-
         let pipeline_opts = &PipelineOptions {
             shader_stage: naga_stage,
             entry_point: module.entry_points[0].name.clone(),
@@ -122,7 +113,7 @@ impl ShaderSource {
         )?;
 
         let shader = Shader { code, source };
-        log::info!("Loaded shader {:?}", shader.source);
+        log::debug!("Loaded shader {:?}", shader.source);
 
         Ok(shader)
     }

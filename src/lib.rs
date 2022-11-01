@@ -9,10 +9,20 @@ use backend_vulkan::{
     pipeline::GraphicsPipeline,
     shader::{ShaderLanguage, ShaderSource, ShaderStage},
     surface::Surface,
-    swapchain::{Swapchain, SwapchainDesc},
+    swapchain::{CreateSwapchainError, Swapchain, SwapchainDesc},
 };
 use std::{ffi::CStr, path::PathBuf, sync::Arc};
-use winit::dpi::PhysicalSize;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum DrawError {
+    #[error("Height or width of the window is zero")]
+    ZeroSizedExtent,
+    #[error("Failed to received image from the swapchain")]
+    NoSwapchainImage,
+    #[error("Image from the swapchain is out of date or suboptimal")]
+    BadSwapchainImage,
+}
 
 pub struct PoogieRenderer {
     pub window: Arc<winit::window::Window>,
@@ -118,7 +128,7 @@ impl PoogieRenderer {
                 .build(),
             vsync: builder.vsync,
         };
-        let swapchain = Swapchain::new(&device, &surface, swapchain_desc)?;
+        let swapchain = Swapchain::create(&device, &surface, swapchain_desc)?;
 
         log::debug!("Preferred format {:?}", preferred_format);
 
@@ -142,6 +152,8 @@ impl PoogieRenderer {
 
         let pipeline = GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
 
+        log::info!("Successfully created renderer!");
+
         Ok(PoogieRenderer {
             window,
             instance,
@@ -154,35 +166,49 @@ impl PoogieRenderer {
         })
     }
 
-    pub fn recreate_swapchain(&mut self, window_size: &PhysicalSize<u32>) -> Result<()> {
-        self.swapchain.recreate(window_size)
+    pub fn recreate_swapchain(&mut self) -> Result<(), CreateSwapchainError> {
+        let window_size = self.window.inner_size();
+        if window_size.width == 0 || window_size.height == 0 {
+            return Err(CreateSwapchainError::ZeroSizedExtent);
+        }
+        self.swapchain.recreate(&window_size)
     }
 
-    pub fn draw(&mut self) -> Result<std::time::Duration> {
+    pub fn draw(&mut self) -> Result<std::time::Duration, DrawError> {
         let timer = std::time::Instant::now();
+
+        let window_size = self.window.inner_size();
+        if window_size.width == 0 || window_size.height == 0 {
+            return Err(DrawError::ZeroSizedExtent);
+        }
 
         unsafe {
             self.device
                 .raw
-                .wait_for_fences(&[self.device.render_fence], true, u64::MAX)?;
+                .wait_for_fences(&[self.device.render_fence], true, u64::MAX)
+                .unwrap();
         }
 
         let swapchain_image = match self.swapchain.acquire_next_image() {
             Some(img) => img,
-            None => {
-                anyhow::bail!("Bad swapchain image");
-            }
+            None => return Err(DrawError::NoSwapchainImage),
         };
 
         let command_buffer = self.device.main_command_buffer.raw;
 
         unsafe {
-            self.device.raw.reset_fences(&[self.device.render_fence])?;
+            self.device
+                .raw
+                .reset_fences(&[self.device.render_fence])
+                .unwrap();
 
-            self.device.raw.reset_command_pool(
-                self.device.main_command_buffer.pool,
-                vk::CommandPoolResetFlags::RELEASE_RESOURCES,
-            )?;
+            self.device
+                .raw
+                .reset_command_pool(
+                    self.device.main_command_buffer.pool,
+                    vk::CommandPoolResetFlags::RELEASE_RESOURCES,
+                )
+                .unwrap();
         }
 
         let cmd_info = vk::CommandBufferBeginInfo::builder()
@@ -205,7 +231,8 @@ impl PoogieRenderer {
         unsafe {
             self.device
                 .raw
-                .begin_command_buffer(command_buffer, &cmd_info)?;
+                .begin_command_buffer(command_buffer, &cmd_info)
+                .unwrap();
 
             // set dynamic states
             self.device
@@ -317,7 +344,7 @@ impl PoogieRenderer {
             );
         }
 
-        unsafe { self.device.raw.end_command_buffer(command_buffer)? };
+        unsafe { self.device.raw.end_command_buffer(command_buffer).unwrap() };
 
         let submit_info = vk::SubmitInfo::builder()
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
@@ -327,11 +354,14 @@ impl PoogieRenderer {
             .build();
 
         unsafe {
-            self.device.raw.queue_submit(
-                self.device.graphics_queue.raw,
-                &[submit_info],
-                self.device.render_fence,
-            )?;
+            self.device
+                .raw
+                .queue_submit(
+                    self.device.graphics_queue.raw,
+                    &[submit_info],
+                    self.device.render_fence,
+                )
+                .unwrap();
         }
 
         let present_info = vk::PresentInfoKHR::builder()
@@ -347,11 +377,13 @@ impl PoogieRenderer {
                 .queue_present(self.device.graphics_queue.raw, &present_info)
             {
                 Ok(_) => (),
-                Err(e) => {
-                    if e == vk::Result::ERROR_OUT_OF_DATE_KHR || e == vk::Result::SUBOPTIMAL_KHR {
-                        anyhow::bail!("Bad swapchain image");
-                    }
+                Err(e)
+                    if e == vk::Result::ERROR_OUT_OF_DATE_KHR
+                        || e == vk::Result::SUBOPTIMAL_KHR =>
+                {
+                    return Err(DrawError::BadSwapchainImage)
                 }
+                Err(e) => panic!("{e:?}"),
             }
         };
 

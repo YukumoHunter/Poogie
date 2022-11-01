@@ -123,7 +123,7 @@ impl Instance {
             .push_next(&mut validation_features);
 
         let raw_instance = unsafe { entry.create_instance(&create_info, None)? };
-        log::info!("Created vulkan instance!");
+        log::debug!("Created vulkan instance!");
 
         let (debug_utils, debug_messenger) = if builder.debug_graphics {
             let debug_utils = ext::DebugUtils::new(&entry, &raw_instance);
@@ -154,6 +154,9 @@ unsafe extern "system" fn vulkan_debug_callback(
     let message = CStr::from_ptr((*_msg_data).p_message).to_str().unwrap();
 
     match _msg_severity {
+        vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
+            log::debug!("{message}")
+        }
         vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
             log::info!("{message}");
         }

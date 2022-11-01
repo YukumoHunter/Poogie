@@ -144,7 +144,7 @@ impl Device {
                 .create_device(pdevice.raw, &device_create_info, None)?
         };
 
-        log::info!("Created Vulkan logical device!");
+        log::debug!("Created Vulkan logical device!");
 
         let graphics_queue = Queue {
             raw: unsafe { device.get_device_queue(graphics_queue_family.index, 0) },
