@@ -1,6 +1,8 @@
+pub mod buffer;
 pub mod device;
 pub mod initializers;
 pub mod instance;
+pub mod mesh;
 pub mod physical_device;
 pub mod pipeline;
 pub mod shader;

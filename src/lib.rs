@@ -1,3 +1,4 @@
+pub mod asset;
 pub mod backend_vulkan;
 
 use anyhow::Result;
@@ -5,11 +6,16 @@ use ash::vk;
 use backend_vulkan::{
     device::Device,
     instance::Instance,
+    mesh::Mesh,
     physical_device::PhysicalDevice,
     pipeline::GraphicsPipeline,
     shader::{ShaderLanguage, ShaderSource, ShaderStage},
     surface::Surface,
     swapchain::{CreateSwapchainError, Swapchain, SwapchainDesc},
+};
+use gpu_allocator::{
+    vulkan::{Allocator, AllocatorCreateDesc},
+    AllocatorDebugSettings,
 };
 use std::{ffi::CStr, path::PathBuf, sync::Arc};
 use thiserror::Error;
@@ -34,8 +40,11 @@ pub struct PoogieRenderer {
     pub swapchain: Swapchain,
     pub frame_number: u64,
     #[allow(dead_code)]
-    shaders: Vec<ShaderSource>,
-    pipeline: GraphicsPipeline,
+    pub shaders: Vec<ShaderSource>,
+    // pub pipeline: GraphicsPipeline,
+    pub allocator: Allocator,
+    pub mesh_pipeline_temp: GraphicsPipeline,
+    pub triangle_mesh_temp: Mesh,
 }
 
 pub struct PoogieRendererBuilder {
@@ -108,10 +117,25 @@ impl PoogieRenderer {
 
         let device = Device::new(&pdevice)?;
 
+        let mut allocator = Allocator::new(&AllocatorCreateDesc {
+            instance: instance.raw.clone(),
+            device: device.raw.clone(),
+            physical_device: pdevice.raw,
+            debug_settings: AllocatorDebugSettings {
+                log_memory_information: true,
+                log_leaks_on_shutdown: true,
+                store_stack_traces: false,
+                log_allocations: true,
+                log_frees: true,
+                log_stack_traces: false,
+            },
+            buffer_device_address: true, // Ideally, check the BufferDeviceAddressFeatures struct.
+        })?;
+
         let surface = Surface::new(&instance, &*window)?;
 
         let preferred_format = vk::SurfaceFormatKHR::builder()
-            .format(vk::Format::B8G8R8A8_UNORM)
+            .format(vk::Format::B8G8R8A8_SRGB)
             .color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
             .build();
 
@@ -132,12 +156,32 @@ impl PoogieRenderer {
 
         log::debug!("Preferred format {:?}", preferred_format);
 
+        // let vertex_shader = ShaderSource::builder()
+        //     .entry(String::from("vs_main"))
+        //     .build(
+        //         ShaderStage::Vertex,
+        //         ShaderLanguage::WGSL,
+        //         PathBuf::from("./src/shaders/shader.wgsl"),
+        //     );
+
+        // let fragment_shader = ShaderSource::builder()
+        //     .entry(String::from("fs_main"))
+        //     .build(
+        //         ShaderStage::Fragment,
+        //         ShaderLanguage::WGSL,
+        //         PathBuf::from("./src/shaders/shader.wgsl"),
+        //     );
+
+        // let shader_descs = vec![vertex_shader, fragment_shader];
+
+        // let pipeline = GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
+
         let vertex_shader = ShaderSource::builder()
             .entry(String::from("vs_main"))
             .build(
                 ShaderStage::Vertex,
                 ShaderLanguage::WGSL,
-                PathBuf::from("./src/shaders/shader.wgsl"),
+                PathBuf::from("./src/shaders/shader_new.wgsl"),
             );
 
         let fragment_shader = ShaderSource::builder()
@@ -145,12 +189,14 @@ impl PoogieRenderer {
             .build(
                 ShaderStage::Fragment,
                 ShaderLanguage::WGSL,
-                PathBuf::from("./src/shaders/shader.wgsl"),
+                PathBuf::from("./src/shaders/shader_new.wgsl"),
             );
 
         let shader_descs = vec![vertex_shader, fragment_shader];
 
-        let pipeline = GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
+        let triangle_mesh_temp = Mesh::new(&mut allocator, &device);
+        let mesh_pipeline_temp =
+            GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
 
         log::info!("Successfully created renderer!");
 
@@ -162,7 +208,10 @@ impl PoogieRenderer {
             swapchain,
             frame_number: 0,
             shaders: shader_descs,
-            pipeline,
+            // pipeline,
+            allocator,
+            mesh_pipeline_temp,
+            triangle_mesh_temp,
         })
     }
 
@@ -309,10 +358,24 @@ impl PoogieRenderer {
             self.device.raw.cmd_bind_pipeline(
                 command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
-                self.pipeline.pipeline,
+                // self.pipeline.pipeline,
+                self.mesh_pipeline_temp.pipeline,
             );
 
-            self.device.raw.cmd_draw(command_buffer, 3, 1, 0, 0);
+            self.device.raw.cmd_bind_vertex_buffers(
+                command_buffer,
+                0,
+                &[self.triangle_mesh_temp.vertex_buffer.raw],
+                &[0],
+            );
+
+            self.device.raw.cmd_draw(
+                command_buffer,
+                self.triangle_mesh_temp.vertices.len() as u32,
+                1,
+                0,
+                0,
+            );
 
             self.device.raw.cmd_end_rendering(command_buffer);
         }
@@ -390,6 +453,12 @@ impl PoogieRenderer {
         self.frame_number += 1;
 
         Ok(timer.elapsed())
+    }
+
+    pub fn terminate(&self) {
+        unsafe {
+            self.device.raw.device_wait_idle().unwrap();
+        }
     }
 
     pub fn frame_number(&self) -> u64 {

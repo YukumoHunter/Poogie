@@ -16,15 +16,6 @@ pub fn pipeline_shader_stage_create_info(
 }
 
 #[inline(always)]
-pub fn pipeline_vertex_input_state_create_info<'a>(
-) -> vk::PipelineVertexInputStateCreateInfoBuilder<'a> {
-    // no vertex bindings or attributes
-    vk::PipelineVertexInputStateCreateInfo::builder()
-        .vertex_attribute_descriptions(&[])
-        .vertex_binding_descriptions(&[])
-}
-
-#[inline(always)]
 pub fn pipeline_input_assembly_create_info<'a>(
     topology: vk::PrimitiveTopology,
 ) -> vk::PipelineInputAssemblyStateCreateInfoBuilder<'a> {

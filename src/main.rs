@@ -45,6 +45,7 @@ fn main() {
                     ..
                 } => {
                     log::info!("Exiting!");
+                    poogie.terminate();
                     *control_flow = ControlFlow::Exit
                 }
                 Event::WindowEvent {

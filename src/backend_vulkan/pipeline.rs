@@ -6,6 +6,7 @@ use super::{
         self, pipeline_color_blend_attachment_state, pipeline_input_assembly_create_info,
         pipeline_rasterization_state_create_info,
     },
+    mesh::{HasVertexInputDescription, Vertex},
     shader::ShaderSource,
     swapchain::Swapchain,
 };
@@ -64,7 +65,13 @@ impl GraphicsPipeline {
             })
             .collect::<Vec<vk::PipelineShaderStageCreateInfo>>();
 
-        let vertex_input_state = initializers::pipeline_vertex_input_state_create_info();
+        let vertex_desc = Vertex::describe();
+
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_attribute_descriptions(&vertex_desc.attributes)
+            .vertex_binding_descriptions(&vertex_desc.bindings)
+            .flags(vertex_desc.flags);
+
         let input_assembly_state =
             pipeline_input_assembly_create_info(vk::PrimitiveTopology::TRIANGLE_LIST);
         let rasterizer = pipeline_rasterization_state_create_info(

@@ -130,7 +130,12 @@ impl Device {
         };
 
         let mut features13 = vk::PhysicalDeviceVulkan13Features::builder().dynamic_rendering(true);
-        let mut features = vk::PhysicalDeviceFeatures2::builder().push_next(&mut features13);
+        let mut features12 = vk::PhysicalDeviceVulkan12Features::builder()
+            .buffer_device_address(true)
+            .build();
+        let mut features = vk::PhysicalDeviceFeatures2::builder()
+            .push_next(&mut features12)
+            .push_next(&mut features13);
 
         let device_create_info = vk::DeviceCreateInfo::builder()
             .enabled_extension_names(&device_ext_names)
