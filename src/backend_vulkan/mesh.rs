@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use ash::vk;
-use glam::Vec3;
+use glam::{Mat4, Vec3, Vec4};
 use gpu_allocator::vulkan::Allocator;
 use memoffset::offset_of;
 
@@ -62,6 +62,12 @@ impl HasVertexInputDescription for Vertex {
             flags: vk::PipelineVertexInputStateCreateFlags::empty(),
         }
     }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct MeshPushConstants {
+    pub data: Vec4,
+    pub render_matrix: Mat4,
 }
 
 #[derive(Debug)]

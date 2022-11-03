@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::{ffi::CString, mem::size_of};
 
 use super::{
     device::Device,
@@ -6,7 +6,7 @@ use super::{
         self, pipeline_color_blend_attachment_state, pipeline_input_assembly_create_info,
         pipeline_rasterization_state_create_info,
     },
-    mesh::{HasVertexInputDescription, Vertex},
+    mesh::{HasVertexInputDescription, MeshPushConstants, Vertex},
     shader::ShaderSource,
     swapchain::Swapchain,
 };
@@ -90,7 +90,15 @@ impl GraphicsPipeline {
         let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
             .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
 
-        let layout_create_info = vk::PipelineLayoutCreateInfo::builder();
+        let push_constant = vk::PushConstantRange::builder()
+            .offset(0)
+            .size(size_of::<MeshPushConstants>() as u32)
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .build();
+
+        let push_constants = [push_constant];
+        let layout_create_info =
+            vk::PipelineLayoutCreateInfo::builder().push_constant_ranges(&push_constants);
 
         let layout = unsafe {
             device

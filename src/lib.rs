@@ -6,18 +6,19 @@ use ash::vk;
 use backend_vulkan::{
     device::Device,
     instance::Instance,
-    mesh::Mesh,
+    mesh::{Mesh, MeshPushConstants},
     physical_device::PhysicalDevice,
     pipeline::GraphicsPipeline,
     shader::{ShaderLanguage, ShaderSource, ShaderStage},
     surface::Surface,
     swapchain::{CreateSwapchainError, Swapchain, SwapchainDesc},
 };
+use glam::{vec3, Mat4};
 use gpu_allocator::{
     vulkan::{Allocator, AllocatorCreateDesc},
     AllocatorDebugSettings,
 };
-use std::{ffi::CStr, path::PathBuf, sync::Arc};
+use std::{ffi::CStr, mem::size_of, path::PathBuf, sync::Arc};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -367,6 +368,30 @@ impl PoogieRenderer {
                 vk::PipelineBindPoint::GRAPHICS,
                 // self.pipeline.pipeline,
                 self.mesh_pipeline_temp.pipeline,
+            );
+
+            let cam_pos = vec3(0.0, 0.0, -2.0);
+            let view = Mat4::from_translation(cam_pos) * Mat4::from_scale(vec3(1.0, 1.0, 1.0));
+
+            let projection = Mat4::perspective_rh(70.0, 16.0 / 9.0, 0.1, 200.0);
+            let model = Mat4::from_rotation_y(self.frame_number() as f32 * 0.004)
+                * Mat4::from_scale(vec3(1.0, 1.0, 1.0));
+
+            let mesh_matrix = projection * view * model;
+            let constants = MeshPushConstants {
+                render_matrix: mesh_matrix,
+                ..Default::default()
+            };
+
+            self.device.raw.cmd_push_constants(
+                command_buffer,
+                self.mesh_pipeline_temp.layout,
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                std::slice::from_raw_parts(
+                    &constants as *const MeshPushConstants as *const u8,
+                    size_of::<MeshPushConstants>(),
+                ),
             );
 
             for mesh in &self.meshes {
