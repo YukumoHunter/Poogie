@@ -4,13 +4,12 @@ use gpu_allocator::{
     MemoryLocation,
 };
 
-use crate::PoogieRenderer;
-
 use super::device::Device;
 
+#[derive(Debug)]
 pub struct Buffer {
     pub raw: vk::Buffer,
-    pub allocation: Allocation,
+    pub allocation: Option<Allocation>,
 }
 
 impl Buffer {
@@ -48,13 +47,14 @@ impl Buffer {
                 .unwrap()
         };
 
-        Buffer { raw, allocation }
+        Buffer {
+            raw,
+            allocation: Some(allocation),
+        }
     }
-}
 
-impl PoogieRenderer {
-    pub fn destroy_buffer(&mut self, buffer: Buffer) {
-        self.allocator.free(buffer.allocation).unwrap();
-        unsafe { self.device.raw.destroy_buffer(buffer.raw, None) }
+    pub fn destroy(&mut self, device: &Device, allocator: &mut Allocator) {
+        allocator.free(self.allocation.take().unwrap()).unwrap();
+        unsafe { device.raw.destroy_buffer(self.raw, None) }
     }
 }

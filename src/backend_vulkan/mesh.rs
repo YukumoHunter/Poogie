@@ -64,6 +64,7 @@ impl HasVertexInputDescription for Vertex {
     }
 }
 
+#[derive(Debug)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub vertex_buffer: Buffer,
@@ -108,11 +109,12 @@ impl Mesh {
             "triangle",
         );
 
-        if let Some(slice) = vertex_buffer.allocation.mapped_ptr() {
-            unsafe {
-                (slice.as_ptr() as *mut Vertex)
-                    .copy_from_nonoverlapping(vertices.as_ptr(), vertices.len())
-            };
+        let alloc = vertex_buffer.allocation.as_ref().unwrap();
+
+        // get the underlying mapped pointer and copy vertex data inside
+        unsafe {
+            (alloc.mapped_ptr().unwrap().as_ptr() as *mut Vertex)
+                .copy_from_nonoverlapping(vertices.as_ptr(), vertices.len())
         };
 
         Mesh {

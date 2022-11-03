@@ -46,7 +46,7 @@ fn main() {
                 } => {
                     log::info!("Exiting!");
                     poogie.terminate();
-                    *control_flow = ControlFlow::Exit
+                    *control_flow = ControlFlow::Exit;
                 }
                 Event::WindowEvent {
                     event: WindowEvent::Resized(_),

@@ -44,7 +44,8 @@ pub struct PoogieRenderer {
     // pub pipeline: GraphicsPipeline,
     pub allocator: Allocator,
     pub mesh_pipeline_temp: GraphicsPipeline,
-    pub triangle_mesh_temp: Mesh,
+    pub meshes: Vec<Mesh>,
+    // pub triangle_mesh_temp: Mesh,
 }
 
 pub struct PoogieRendererBuilder {
@@ -211,7 +212,7 @@ impl PoogieRenderer {
             // pipeline,
             allocator,
             mesh_pipeline_temp,
-            triangle_mesh_temp,
+            meshes: vec![triangle_mesh_temp],
         })
     }
 
@@ -325,16 +326,22 @@ impl PoogieRenderer {
             .image_layout(vk::ImageLayout::ATTACHMENT_OPTIMAL_KHR)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
-            .clear_value(vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [
-                        ((self.frame_number as f32 / 3.0 % 255.0) / 255.0),
-                        ((self.frame_number as f32 / 4.0 % 255.0) / 255.0),
-                        ((self.frame_number as f32 / 5.0 % 255.0) / 255.0),
-                        1.0,
-                    ],
+            .clear_value(
+                // vk::ClearValue {
+                // color: vk::ClearColorValue {
+                //     float32: [
+                //         ((self.frame_number as f32 / 3.0 % 255.0) / 255.0),
+                //         ((self.frame_number as f32 / 4.0 % 255.0) / 255.0),
+                //         ((self.frame_number as f32 / 5.0 % 255.0) / 255.0),
+                //         1.0,
+                //     ],
+                // },
+                vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.0, 0.0, 0.0, 1.0],
+                    },
                 },
-            })
+            )
             .build();
 
         let color_attachments = vec![color_attachment_info];
@@ -362,20 +369,18 @@ impl PoogieRenderer {
                 self.mesh_pipeline_temp.pipeline,
             );
 
-            self.device.raw.cmd_bind_vertex_buffers(
-                command_buffer,
-                0,
-                &[self.triangle_mesh_temp.vertex_buffer.raw],
-                &[0],
-            );
+            for mesh in &self.meshes {
+                self.device.raw.cmd_bind_vertex_buffers(
+                    command_buffer,
+                    0,
+                    &[mesh.vertex_buffer.raw],
+                    &[0],
+                );
 
-            self.device.raw.cmd_draw(
-                command_buffer,
-                self.triangle_mesh_temp.vertices.len() as u32,
-                1,
-                0,
-                0,
-            );
+                self.device
+                    .raw
+                    .cmd_draw(command_buffer, mesh.vertices.len() as u32, 1, 0, 0);
+            }
 
             self.device.raw.cmd_end_rendering(command_buffer);
         }
@@ -455,9 +460,15 @@ impl PoogieRenderer {
         Ok(timer.elapsed())
     }
 
-    pub fn terminate(&self) {
+    pub fn terminate(&mut self) {
         unsafe {
             self.device.raw.device_wait_idle().unwrap();
+
+            for mesh in &mut self.meshes {
+                mesh.vertex_buffer
+                    .destroy(&self.device, &mut self.allocator);
+            }
+            self.meshes.clear();
         }
     }
 
