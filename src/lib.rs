@@ -41,7 +41,7 @@ pub struct PoogieRenderer {
     pub swapchain: Swapchain,
     pub frame_number: u64,
     #[allow(dead_code)]
-    pub shaders: Vec<ShaderSource>,
+    pub shader_sources: Vec<ShaderSource>,
     // pub pipeline: GraphicsPipeline,
     pub allocator: Allocator,
     pub mesh_pipeline_temp: GraphicsPipeline,
@@ -194,11 +194,11 @@ impl PoogieRenderer {
                 PathBuf::from("./src/shaders/shader_new.wgsl"),
             );
 
-        let shader_descs = vec![vertex_shader, fragment_shader];
+        let shader_sources = vec![vertex_shader, fragment_shader];
 
         let triangle_mesh_temp = Mesh::new(&mut allocator, &device);
         let mesh_pipeline_temp =
-            GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
+            GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_sources)?;
 
         log::info!("Successfully created renderer!");
 
@@ -209,7 +209,7 @@ impl PoogieRenderer {
             surface,
             swapchain,
             frame_number: 0,
-            shaders: shader_descs,
+            shader_sources,
             // pipeline,
             allocator,
             mesh_pipeline_temp,
