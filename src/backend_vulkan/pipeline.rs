@@ -22,7 +22,7 @@ impl GraphicsPipeline {
     pub fn create_pipeline(
         device: &Device,
         swapchain: &Swapchain,
-        shaders: &[ShaderSource],
+        shader_sources: &[ShaderSource],
     ) -> Result<Self> {
         let viewports = [vk::Viewport::builder()
             .x(0.0)
@@ -46,7 +46,7 @@ impl GraphicsPipeline {
 
         let mut entry_points = vec![];
 
-        let stages = shaders
+        let stages = shader_sources
             .iter()
             .enumerate()
             .map(|(i, source)| {

@@ -34,8 +34,8 @@ impl ShaderSourceBuilder {
         }
     }
 
-    pub fn entry(mut self, entry: String) -> Self {
-        self.entry = entry;
+    pub fn entry(mut self, entry: impl Into<String>) -> Self {
+        self.entry = entry.into();
         self
     }
 
@@ -43,12 +43,12 @@ impl ShaderSourceBuilder {
         self,
         stage: ShaderStage,
         language: ShaderLanguage,
-        path: PathBuf,
+        path: impl Into<PathBuf>,
     ) -> ShaderSource {
         ShaderSource {
             stage,
             language,
-            path,
+            path: path.into(),
             entry: self.entry,
         }
     }
@@ -68,9 +68,7 @@ impl ShaderSource {
     }
 
     pub fn create_shader(self) -> Result<Shader> {
-        let source = self.clone();
-
-        let buf = fs::read_to_string(self.path)?;
+        let buf = fs::read_to_string(&self.path)?;
 
         let naga_stage = match self.stage {
             ShaderStage::Vertex => naga::ShaderStage::Vertex,
@@ -112,7 +110,7 @@ impl ShaderSource {
             },
         )?;
 
-        let shader = Shader { code, source };
+        let shader = Shader { code, source: self };
         log::debug!("Loaded shader {:?}", shader.source);
 
         Ok(shader)

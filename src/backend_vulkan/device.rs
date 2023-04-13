@@ -29,7 +29,12 @@ impl CommandBuffer {
             .command_pool(pool)
             .level(vk::CommandBufferLevel::PRIMARY);
 
-        let cmd_buffer = unsafe { device.allocate_command_buffers(&cmd_buffer_allocate_info)?[0] };
+        let cmd_buffer = unsafe {
+            device
+                .allocate_command_buffers(&cmd_buffer_allocate_info)?
+                .pop()
+                .unwrap()
+        };
 
         let fence_create_info =
             vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);

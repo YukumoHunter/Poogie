@@ -18,7 +18,7 @@ use gpu_allocator::{
     vulkan::{Allocator, AllocatorCreateDesc},
     AllocatorDebugSettings,
 };
-use std::{ffi::CStr, mem::size_of, path::PathBuf, sync::Arc};
+use std::{ffi::CStr, mem::size_of, sync::Arc};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -119,20 +119,22 @@ impl PoogieRenderer {
 
         let device = Device::new(&pdevice)?;
 
-        let mut allocator = Allocator::new(&AllocatorCreateDesc {
+        let allocator_desc = AllocatorCreateDesc {
             instance: instance.raw.clone(),
             device: device.raw.clone(),
-            physical_device: pdevice.raw,
+            physical_device: pdevice.raw.clone(),
             debug_settings: AllocatorDebugSettings {
                 log_memory_information: true,
                 log_leaks_on_shutdown: true,
-                store_stack_traces: false,
+                store_stack_traces: true,
                 log_allocations: true,
                 log_frees: true,
-                log_stack_traces: false,
+                log_stack_traces: true,
             },
             buffer_device_address: true, // Ideally, check the BufferDeviceAddressFeatures struct.
-        })?;
+        };
+
+        let mut allocator = Allocator::new(&allocator_desc)?;
 
         let surface = Surface::new(&instance, &*window)?;
 
@@ -174,25 +176,17 @@ impl PoogieRenderer {
         //         PathBuf::from("./src/shaders/shader.wgsl"),
         //     );
 
-        // let shader_descs = vec![vertex_shader, fragment_shader];
+        let vertex_shader = ShaderSource::builder().entry("vs_main").build(
+            ShaderStage::Vertex,
+            ShaderLanguage::WGSL,
+            "./src/shaders/shader_new.wgsl",
+        );
 
-        // let pipeline = GraphicsPipeline::create_pipeline(&device, &swapchain, &shader_descs)?;
-
-        let vertex_shader = ShaderSource::builder()
-            .entry(String::from("vs_main"))
-            .build(
-                ShaderStage::Vertex,
-                ShaderLanguage::WGSL,
-                PathBuf::from("./src/shaders/shader_new.wgsl"),
-            );
-
-        let fragment_shader = ShaderSource::builder()
-            .entry(String::from("fs_main"))
-            .build(
-                ShaderStage::Fragment,
-                ShaderLanguage::WGSL,
-                PathBuf::from("./src/shaders/shader_new.wgsl"),
-            );
+        let fragment_shader = ShaderSource::builder().entry("fs_main").build(
+            ShaderStage::Fragment,
+            ShaderLanguage::WGSL,
+            "./src/shaders/shader_new.wgsl",
+        );
 
         let shader_sources = vec![vertex_shader, fragment_shader];
 
@@ -245,7 +239,7 @@ impl PoogieRenderer {
             None => return Err(DrawError::NoSwapchainImage),
         };
 
-        let command_buffer = self.device.main_command_buffer.raw;
+        let raw_cmd_buffer = self.device.main_command_buffer.raw;
 
         unsafe {
             self.device
@@ -282,17 +276,17 @@ impl PoogieRenderer {
         unsafe {
             self.device
                 .raw
-                .begin_command_buffer(command_buffer, &cmd_info)
+                .begin_command_buffer(raw_cmd_buffer, &cmd_info)
                 .unwrap();
 
             // set dynamic states
             self.device
                 .raw
-                .cmd_set_viewport(command_buffer, 0, &viewports);
+                .cmd_set_viewport(raw_cmd_buffer, 0, &viewports);
 
             self.device
                 .raw
-                .cmd_set_scissor(command_buffer, 0, &scissors);
+                .cmd_set_scissor(raw_cmd_buffer, 0, &scissors);
         }
 
         // manually set image to a renderable layout
@@ -312,7 +306,7 @@ impl PoogieRenderer {
 
         unsafe {
             self.device.raw.cmd_pipeline_barrier(
-                command_buffer,
+                raw_cmd_buffer,
                 vk::PipelineStageFlags::TOP_OF_PIPE,
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::DependencyFlags::empty(),
@@ -327,22 +321,11 @@ impl PoogieRenderer {
             .image_layout(vk::ImageLayout::ATTACHMENT_OPTIMAL_KHR)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
-            .clear_value(
-                // vk::ClearValue {
-                // color: vk::ClearColorValue {
-                //     float32: [
-                //         ((self.frame_number as f32 / 3.0 % 255.0) / 255.0),
-                //         ((self.frame_number as f32 / 4.0 % 255.0) / 255.0),
-                //         ((self.frame_number as f32 / 5.0 % 255.0) / 255.0),
-                //         1.0,
-                //     ],
-                // },
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.0, 0.0, 0.0, 1.0],
-                    },
+            .clear_value(vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
                 },
-            )
+            })
             .build();
 
         let color_attachments = vec![color_attachment_info];
@@ -361,10 +344,10 @@ impl PoogieRenderer {
         unsafe {
             self.device
                 .raw
-                .cmd_begin_rendering(command_buffer, &rendering_info);
+                .cmd_begin_rendering(raw_cmd_buffer, &rendering_info);
 
             self.device.raw.cmd_bind_pipeline(
-                command_buffer,
+                raw_cmd_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 // self.pipeline.pipeline,
                 self.mesh_pipeline_temp.pipeline,
@@ -384,7 +367,7 @@ impl PoogieRenderer {
             };
 
             self.device.raw.cmd_push_constants(
-                command_buffer,
+                raw_cmd_buffer,
                 self.mesh_pipeline_temp.layout,
                 vk::ShaderStageFlags::VERTEX,
                 0,
@@ -396,7 +379,7 @@ impl PoogieRenderer {
 
             for mesh in &self.meshes {
                 self.device.raw.cmd_bind_vertex_buffers(
-                    command_buffer,
+                    raw_cmd_buffer,
                     0,
                     &[mesh.vertex_buffer.raw],
                     &[0],
@@ -404,10 +387,10 @@ impl PoogieRenderer {
 
                 self.device
                     .raw
-                    .cmd_draw(command_buffer, mesh.vertices.len() as u32, 1, 0, 0);
+                    .cmd_draw(raw_cmd_buffer, mesh.vertices.len() as u32, 1, 0, 0);
             }
 
-            self.device.raw.cmd_end_rendering(command_buffer);
+            self.device.raw.cmd_end_rendering(raw_cmd_buffer);
         }
 
         // manually set image to a presentable layout
@@ -427,7 +410,7 @@ impl PoogieRenderer {
 
         unsafe {
             self.device.raw.cmd_pipeline_barrier(
-                command_buffer,
+                raw_cmd_buffer,
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                 vk::DependencyFlags::empty(),
@@ -437,13 +420,13 @@ impl PoogieRenderer {
             );
         }
 
-        unsafe { self.device.raw.end_command_buffer(command_buffer).unwrap() };
+        unsafe { self.device.raw.end_command_buffer(raw_cmd_buffer).unwrap() };
 
         let submit_info = vk::SubmitInfo::builder()
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
             .wait_semaphores(&[swapchain_image.acquire_semaphore])
             .signal_semaphores(&[swapchain_image.finished_render_semaphore])
-            .command_buffers(&[command_buffer])
+            .command_buffers(std::slice::from_ref(&raw_cmd_buffer))
             .build();
 
         unsafe {
@@ -451,7 +434,7 @@ impl PoogieRenderer {
                 .raw
                 .queue_submit(
                     self.device.graphics_queue.raw,
-                    &[submit_info],
+                    std::slice::from_ref(&submit_info),
                     self.device.render_fence,
                 )
                 .unwrap();
